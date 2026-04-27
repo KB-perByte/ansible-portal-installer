@@ -8,6 +8,12 @@ from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# Forward reference to avoid circular import
+def _get_default_backend() -> str:
+    """Get default backend type."""
+    return "helm"
+
+
 class RegistryConfig(BaseModel):
     """Container registry configuration."""
 
@@ -67,6 +73,11 @@ class AAPConfig(BaseModel):
             raise ValueError(f"AAP host URL must start with http:// or https://: {v}")
         return v.rstrip("/")
 
+    @property
+    def base_url(self) -> str:
+        """Alias for host_url for backward compatibility."""
+        return self.host_url
+
 
 class SCMConfig(BaseModel):
     """Source Control Management (GitHub/GitLab) configuration."""
@@ -86,16 +97,32 @@ class SCMConfig(BaseModel):
 class DeploymentConfig(BaseModel):
     """Portal deployment configuration."""
 
-    namespace: str = Field(..., description="OpenShift namespace")
-    release_name: str = Field(default="rhaap-portal-dev", description="Helm release name")
+    # Deployment target
+    namespace: str = Field(..., description="Target namespace/location")
+    release_name: str = Field(default="rhaap-portal-dev", description="Deployment identifier")
+    backend: str = Field(
+        default_factory=_get_default_backend,
+        description="Deployment backend (helm, operator, rhel)",
+    )
+
+    # Paths
     chart_path: Path = Field(
-        default=Path("../ansible-portal-chart"), description="Path to Helm chart"
+        default=Path("../ansible-portal-chart"), description="Path to deployment configuration"
     )
     plugins_path: Path = Field(
         default=Path.cwd(), description="Path to ansible-rhdh-plugins repo"
     )
+
+    # Configuration
+    registry: Optional["RegistryConfig"] = Field(default=None, description="Registry configuration")
+    aap: Optional["AAPConfig"] = Field(default=None, description="AAP configuration")
+    scm: Optional["SCMConfig"] = Field(default=None, description="SCM configuration")
+    image_tag: str = Field(default="dev", description="Plugin image tag")
+    check_ssl: bool = Field(default=False, description="Verify SSL certificates")
+
+    # Portal settings
     cluster_router_base: Optional[str] = Field(
-        default=None, description="OpenShift cluster router base domain"
+        default=None, description="OpenShift cluster router base domain (auto-detect for K8s)"
     )
     admin_password: Optional[str] = Field(
         default=None, description="Portal admin password (generated if not provided)"
@@ -143,6 +170,7 @@ class PortalInstallerSettings(BaseSettings):
     ocp_namespace: Optional[str] = Field(default=None, alias="OCP_NAMESPACE")
 
     # Deployment
+    backend: str = Field(default="helm", alias="DEPLOYMENT_BACKEND")
     release_name: str = Field(default="rhaap-portal-dev", alias="RELEASE_NAME")
     chart_path: str = Field(default="../ansible-portal-chart", alias="CHART_PATH")
     plugins_path: str = Field(default=".", alias="PLUGINS_PATH")

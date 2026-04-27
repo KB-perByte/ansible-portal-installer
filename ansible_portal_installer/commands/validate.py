@@ -5,23 +5,28 @@ import sys
 import click
 from rich.console import Console
 
-from ..config import HealthCheckConfig
-from ..k8s import KubernetesClient
-from ..validation import HealthChecker
+from ..backends import BackendFactory, BackendType
 
 console = Console()
 
 
 @click.command()
 @click.option(
+    "--backend",
+    type=click.Choice([b.value for b in BackendType]),
+    default=BackendType.HELM.value,
+    help="Deployment backend",
+    envvar="DEPLOYMENT_BACKEND",
+)
+@click.option(
     "--namespace",
     "-n",
-    help="OpenShift namespace (auto-detect if not provided)",
+    help="Target namespace/location (auto-detect if not provided)",
     envvar="OCP_NAMESPACE",
 )
 @click.option(
     "--release-name",
-    help="Helm release name (auto-detect if not provided)",
+    help="Deployment identifier (auto-detect if not provided)",
     envvar="RELEASE_NAME",
 )
 @click.option(
@@ -37,6 +42,7 @@ console = Console()
     type=int,
 )
 def validate(
+    backend: str,
     namespace: str | None,
     release_name: str | None,
     verbose: bool,
@@ -52,57 +58,54 @@ def validate(
     - Settings management API
     - Database state
 
+    Specific checks vary by backend:
+    - Helm: Kubernetes pod, service, route checks
+    - Operator: Operator status, CR conditions
+    - RHEL: systemd service status, port checks
+
     Exit codes:
     - 0: All checks passed
     - 1: Some checks failed
-    - 2: Could not connect to cluster
+    - 2: Could not connect to target
     """
     console.print("[bold blue]Ansible Portal - Health Check[/bold blue]\n")
 
-    # Initialize Kubernetes client
     try:
-        k8s = KubernetesClient()
-    except RuntimeError as e:
-        console.print(f"[red]Error connecting to cluster: {e}[/red]")
+        deployer = BackendFactory.create(backend)
+
+        # Auto-detection handled by backend implementation
+        if not namespace:
+            console.print("[blue]Auto-detecting namespace...[/blue]")
+
+        all_passed = deployer.validate_deployment(
+            namespace=namespace or "",  # Backend will auto-detect
+            release_name=release_name,
+            verbose=verbose,
+            timeout=timeout,
+        )
+
+        # Exit with appropriate code
+        sys.exit(0 if all_passed else 1)
+
+    except NotImplementedError as e:
+        console.print(f"[red]{e}[/red]")
+        console.print(
+            f"\n[yellow]Available backends: {', '.join(BackendFactory.list_implemented_backends())}[/yellow]"
+        )
+        sys.exit(2)
+    except Exception as e:
+        console.print(f"[red]Validation error: {e}[/red]")
         sys.exit(2)
 
-    # Auto-detect namespace if not provided
-    if not namespace:
-        namespace = _auto_detect_namespace(k8s)
-        if not namespace:
-            console.print(
-                "[red]Could not auto-detect namespace. "
-                "Please specify with --namespace[/red]"
-            )
-            sys.exit(2)
 
-    # Auto-detect release name if not provided
-    if not release_name:
-        release_name = _auto_detect_release(k8s, namespace)
+def _auto_detect_namespace(k8s) -> str | None:
+    """Auto-detect namespace with portal deployment.
 
-    console.print(f"[blue]Namespace:[/blue] {namespace}")
-    if release_name:
-        console.print(f"[blue]Release:[/blue] {release_name}")
-    console.print()
+    This function is kept for backward compatibility but is now
+    delegated to the backend implementation.
+    """
+    from ..k8s import KubernetesClient
 
-    # Create health check config
-    config = HealthCheckConfig(
-        namespace=namespace,
-        release_name=release_name,
-        verbose=verbose,
-        timeout_seconds=timeout,
-    )
-
-    # Run health checks
-    checker = HealthChecker(config)
-    all_passed = checker.run_all_checks()
-
-    # Exit with appropriate code
-    sys.exit(0 if all_passed else 1)
-
-
-def _auto_detect_namespace(k8s: KubernetesClient) -> str | None:
-    """Auto-detect namespace with portal deployment."""
     console.print("[blue]Auto-detecting namespace...[/blue]")
 
     # Get all namespaces
@@ -138,8 +141,12 @@ def _auto_detect_namespace(k8s: KubernetesClient) -> str | None:
         return None
 
 
-def _auto_detect_release(k8s: KubernetesClient, namespace: str) -> str | None:
-    """Auto-detect Helm release name."""
+def _auto_detect_release(k8s, namespace: str) -> str | None:
+    """Auto-detect Helm release name.
+
+    This function is kept for backward compatibility but is now
+    delegated to the backend implementation.
+    """
     console.print("[blue]Auto-detecting Helm release...[/blue]")
 
     # Get deployments with Helm label

@@ -6,25 +6,29 @@ from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from ..config import LogCollectionConfig
-from ..helm import HelmClient
-from ..k8s import KubernetesClient, OpenShiftClient
+from ..backends import BackendFactory, BackendType
 
 console = Console()
 
 
 @click.command(name="collect-logs")
 @click.option(
+    "--backend",
+    type=click.Choice([b.value for b in BackendType]),
+    default=BackendType.HELM.value,
+    help="Deployment backend",
+    envvar="DEPLOYMENT_BACKEND",
+)
+@click.option(
     "--namespace",
     "-n",
-    help="OpenShift namespace (auto-detect if not provided)",
+    help="Target namespace/location (auto-detect if not provided)",
     envvar="OCP_NAMESPACE",
 )
 @click.option(
     "--release-name",
-    help="Helm release name (auto-detect if not provided)",
+    help="Deployment identifier (auto-detect if not provided)",
     envvar="RELEASE_NAME",
 )
 @click.option(
@@ -40,6 +44,7 @@ console = Console()
     help="Number of log lines to collect",
 )
 def collect_logs(
+    backend: str,
     namespace: str | None,
     release_name: str | None,
     output_dir: Path | None,
@@ -51,44 +56,17 @@ def collect_logs(
     - All pod logs (main containers + init containers)
     - Pod descriptions and status
     - Namespace events
-    - Helm release status and values
+    - Deployment status and configuration
     - Resource manifests (deployments, services, routes, etc.)
 
     The collected logs are saved to a timestamped directory for troubleshooting.
+
+    Log collection varies by backend:
+    - Helm: Pod logs, Helm status, Kubernetes events
+    - Operator: CR status, operator logs, conditions
+    - RHEL: systemd journal, service logs, config files
     """
     console.print("[bold blue]Ansible Portal - Collect Diagnostic Logs[/bold blue]\n")
-
-    # Initialize clients
-    try:
-        k8s = KubernetesClient()
-        oc = OpenShiftClient()
-        helm = HelmClient()
-    except RuntimeError as e:
-        console.print(f"[red]Error connecting to cluster: {e}[/red]")
-        sys.exit(2)
-
-    # Auto-detect namespace if not provided
-    if not namespace:
-        from .validate import _auto_detect_namespace
-
-        namespace = _auto_detect_namespace(k8s)
-        if not namespace:
-            console.print(
-                "[red]Could not auto-detect namespace. "
-                "Please specify with --namespace[/red]"
-            )
-            sys.exit(2)
-
-    # Auto-detect release name if not provided
-    if not release_name:
-        from .validate import _auto_detect_release
-
-        release_name = _auto_detect_release(k8s, namespace)
-
-    console.print(f"[blue]Namespace:[/blue] {namespace}")
-    if release_name:
-        console.print(f"[blue]Release:[/blue] {release_name}")
-    console.print()
 
     # Create output directory
     if not output_dir:
@@ -98,60 +76,39 @@ def collect_logs(
     output_dir.mkdir(parents=True, exist_ok=True)
     console.print(f"[green]✓[/green] Output directory: {output_dir}\n")
 
-    # Create config
-    config = LogCollectionConfig(
-        namespace=namespace,
-        release_name=release_name,
-        output_dir=output_dir,
-        tail_lines=tail,
-    )
+    try:
+        deployer = BackendFactory.create(backend)
 
-    # Collect logs
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Collecting logs...", total=None)
+        # Auto-detection handled by backend
+        if not namespace:
+            console.print("[blue]Auto-detecting namespace...[/blue]")
 
-        # Cluster info
-        _collect_cluster_info(oc, output_dir)
-        progress.update(task, description="Collected cluster info")
+        deployer.collect_logs(
+            namespace=namespace or "",  # Backend will auto-detect
+            release_name=release_name,
+            output_dir=output_dir,
+            tail_lines=tail,
+        )
 
-        # Pod info
-        _collect_pod_info(k8s, namespace, output_dir)
-        progress.update(task, description="Collected pod info")
+        console.print(f"\n[bold green]✓ Log collection complete![/bold green]")
+        console.print(f"[blue]Logs saved to:[/blue] {output_dir}\n")
+        console.print(f"[yellow]Review {output_dir}/SUMMARY.txt for an overview[/yellow]\n")
 
-        # Pod descriptions
-        _collect_pod_descriptions(k8s, namespace, output_dir)
-        progress.update(task, description="Collected pod descriptions")
-
-        # Pod logs
-        _collect_pod_logs(k8s, namespace, output_dir, tail)
-        progress.update(task, description="Collected pod logs")
-
-        # Events
-        _collect_events(k8s, namespace, output_dir)
-        progress.update(task, description="Collected events")
-
-        # Helm status
-        if release_name and release_name != "unknown":
-            _collect_helm_status(helm, release_name, namespace, output_dir)
-            progress.update(task, description="Collected Helm status")
-
-        # Resources
-        _collect_resources(k8s, oc, namespace, output_dir)
-        progress.update(task, description="Collected resources")
-
-        # Create summary
-        _create_summary(output_dir, namespace, release_name or "unknown")
-
-    console.print(f"\n[bold green]✓ Log collection complete![/bold green]")
-    console.print(f"[blue]Logs saved to:[/blue] {output_dir}\n")
-    console.print(f"[yellow]Review {output_dir}/SUMMARY.txt for an overview[/yellow]\n")
+    except NotImplementedError as e:
+        console.print(f"[red]{e}[/red]")
+        console.print(
+            f"\n[yellow]Available backends: {', '.join(BackendFactory.list_implemented_backends())}[/yellow]"
+        )
+        sys.exit(2)
+    except Exception as e:
+        console.print(f"[red]Log collection failed: {e}[/red]")
+        sys.exit(1)
 
 
-def _collect_cluster_info(oc: OpenShiftClient, output_dir: Path) -> None:
+# Helper functions for Helm backend (imported by helm/deployer.py)
+
+
+def _collect_cluster_info(oc, output_dir: Path) -> None:
     """Collect cluster information."""
     info_file = output_dir / "cluster-info.txt"
 
@@ -169,7 +126,7 @@ def _collect_cluster_info(oc: OpenShiftClient, output_dir: Path) -> None:
         console.print(f"[yellow]Warning: Could not collect cluster info: {e}[/yellow]")
 
 
-def _collect_pod_info(k8s: KubernetesClient, namespace: str, output_dir: Path) -> None:
+def _collect_pod_info(k8s, namespace: str, output_dir: Path) -> None:
     """Collect pod list."""
     pods_file = output_dir / "pods.txt"
 
@@ -196,7 +153,7 @@ def _collect_pod_info(k8s: KubernetesClient, namespace: str, output_dir: Path) -
         console.print(f"[yellow]Warning: Could not collect pod info: {e}[/yellow]")
 
 
-def _collect_pod_descriptions(k8s: KubernetesClient, namespace: str, output_dir: Path) -> None:
+def _collect_pod_descriptions(k8s, namespace: str, output_dir: Path) -> None:
     """Collect detailed pod descriptions."""
     try:
         pods = k8s.get_pods(namespace)
@@ -218,9 +175,7 @@ def _collect_pod_descriptions(k8s: KubernetesClient, namespace: str, output_dir:
         console.print(f"[yellow]Warning: Could not collect pod descriptions: {e}[/yellow]")
 
 
-def _collect_pod_logs(
-    k8s: KubernetesClient, namespace: str, output_dir: Path, tail: int
-) -> None:
+def _collect_pod_logs(k8s, namespace: str, output_dir: Path, tail: int) -> None:
     """Collect pod logs."""
     try:
         pods = k8s.get_pods(namespace)
@@ -265,7 +220,7 @@ def _collect_pod_logs(
         console.print(f"[yellow]Warning: Could not collect pod logs: {e}[/yellow]")
 
 
-def _collect_events(k8s: KubernetesClient, namespace: str, output_dir: Path) -> None:
+def _collect_events(k8s, namespace: str, output_dir: Path) -> None:
     """Collect namespace events."""
     events_file = output_dir / "events.txt"
 
@@ -294,9 +249,7 @@ def _collect_events(k8s: KubernetesClient, namespace: str, output_dir: Path) -> 
         console.print(f"[yellow]Warning: Could not collect events: {e}[/yellow]")
 
 
-def _collect_helm_status(
-    helm: HelmClient, release_name: str, namespace: str, output_dir: Path
-) -> None:
+def _collect_helm_status(helm, release_name: str, namespace: str, output_dir: Path) -> None:
     """Collect Helm release status."""
     helm_file = output_dir / "helm-status.txt"
 
@@ -323,9 +276,7 @@ def _collect_helm_status(
         console.print(f"[yellow]Warning: Could not collect Helm status: {e}[/yellow]")
 
 
-def _collect_resources(
-    k8s: KubernetesClient, oc: OpenShiftClient, namespace: str, output_dir: Path
-) -> None:
+def _collect_resources(k8s, oc, namespace: str, output_dir: Path) -> None:
     """Collect resource manifests."""
     resources_file = output_dir / "resources.txt"
 
@@ -392,4 +343,4 @@ def _create_summary(output_dir: Path, namespace: str, release_name: str) -> None
         f.write("  2. Review init container logs (*-init.log) for plugin loading\n")
         f.write("  3. Check main container logs for application errors\n")
         f.write("  4. Review events.txt for cluster-level issues\n")
-        f.write("  5. Verify Helm values in helm-status.txt\n")
+        f.write("  5. Verify deployment status and configuration\n")
