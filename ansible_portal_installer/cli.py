@@ -4,7 +4,7 @@ import click
 from rich.console import Console
 
 from . import __version__
-from .commands import build
+from .commands import build, collect_logs, deploy, teardown, upgrade, validate
 
 console = Console()
 
@@ -40,45 +40,13 @@ def cli(ctx: click.Context) -> None:
     ctx.ensure_object(dict)
 
 
-# Register commands
+# Register all commands
 cli.add_command(build.build)
-
-
-# Placeholder commands (to be implemented)
-@cli.command()
-@click.option("--namespace", "-n", required=True)
-def deploy(namespace: str) -> None:
-    """Deploy portal to OpenShift (WIP)."""
-    console.print(f"[yellow]Deploy command not yet implemented for {namespace}[/yellow]")
-    console.print("[blue]Use the build command to build plugin images[/blue]")
-
-
-@cli.command()
-@click.option("--namespace", "-n", required=True)
-def upgrade(namespace: str) -> None:
-    """Upgrade existing deployment (WIP)."""
-    console.print(f"[yellow]Upgrade command not yet implemented for {namespace}[/yellow]")
-
-
-@cli.command()
-@click.option("--namespace", "-n", required=True)
-def validate(namespace: str) -> None:
-    """Run health checks (WIP)."""
-    console.print(f"[yellow]Validate command not yet implemented for {namespace}[/yellow]")
-
-
-@cli.command(name="collect-logs")
-@click.option("--namespace", "-n", required=True)
-def collect_logs(namespace: str) -> None:
-    """Collect diagnostic logs (WIP)."""
-    console.print(f"[yellow]Collect-logs command not yet implemented for {namespace}[/yellow]")
-
-
-@cli.command()
-@click.option("--namespace", "-n", required=True)
-def teardown(namespace: str) -> None:
-    """Remove deployment (WIP)."""
-    console.print(f"[yellow]Teardown command not yet implemented for {namespace}[/yellow]")
+cli.add_command(deploy.deploy)
+cli.add_command(upgrade.upgrade)
+cli.add_command(validate.validate)
+cli.add_command(collect_logs.collect_logs)
+cli.add_command(teardown.teardown)
 
 
 if __name__ == "__main__":
