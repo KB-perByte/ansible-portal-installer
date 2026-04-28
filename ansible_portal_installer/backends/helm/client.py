@@ -180,6 +180,7 @@ def generate_portal_values(
     cluster_router_base: str,
     release_name: str,
     admin_password_hash: str,
+    backend_secret: str,
     check_ssl: bool = False,
 ) -> Dict[str, Any]:
     """Generate Helm values for portal deployment."""
@@ -190,6 +191,33 @@ def generate_portal_values(
                 "pluginMode": "oci",
                 "ociPluginImage": registry_url,
                 "imageTagInfo": image_tag,
+                "dynamic": {
+                    "plugins": [
+                        {
+                            "package": f"oci://{registry_url}/automation-portal:{image_tag}!ansible-plugin-scaffolder-backend-module-backstage-rhaap",
+                            "disabled": False,
+                            "pluginConfig": {},
+                        },
+                        {
+                            "package": f"oci://{registry_url}/automation-portal:{image_tag}!ansible-backstage-plugin-catalog-backend-module-rhaap",
+                            "disabled": False,
+                        },
+                        {
+                            "package": f"oci://{registry_url}/automation-portal:{image_tag}!ansible-plugin-backstage-self-service",
+                            "disabled": False,
+                            "pluginConfig": {},
+                        },
+                        {
+                            "package": f"oci://{registry_url}/automation-portal:{image_tag}!ansible-backstage-plugin-auth-backend-module-rhaap-provider",
+                            "disabled": False,
+                        },
+                        {
+                            "package": f"oci://{registry_url}/automation-portal:{image_tag}!ansible-plugin-backstage-rhaap",
+                            "disabled": False,
+                            "pluginConfig": {},
+                        },
+                    ]
+                },
             },
             "upstream": {
                 "backstage": {
@@ -197,6 +225,7 @@ def generate_portal_values(
                         {"name": "ENABLE_CORE_ROOTCONFIG_OVERRIDE", "value": "true"},
                         {"name": "DEPLOYMENT_NAME", "value": release_name},
                         {"name": "PORTAL_ADMIN_PASSWORD_HASH", "value": admin_password_hash},
+                        {"name": "BACKEND_SECRET", "value": backend_secret},
                         {
                             "name": "POSTGRESQL_ADMIN_PASSWORD",
                             "valueFrom": {

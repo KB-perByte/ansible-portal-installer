@@ -158,6 +158,16 @@ class KubernetesClient:
         except ApiException as e:
             raise RuntimeError(f"Failed to create/update secret {secret_name}: {e}") from e
 
+    def create_or_update_secret(
+        self, namespace: str, name: str = None, secret_name: str = None, data: Dict[str, str] = None, secret_type: str = "Opaque"
+    ) -> None:
+        """Alias for create_secret (which already does create-or-update)."""
+        # Accept either 'name' or 'secret_name' parameter
+        actual_name = name or secret_name
+        if not actual_name:
+            raise ValueError("Either 'name' or 'secret_name' must be provided")
+        return self.create_secret(namespace, actual_name, data, secret_type)
+
     def get_deployment(self, namespace: str, deployment_name: str) -> Optional[client.V1Deployment]:
         """Get deployment by name."""
         try:

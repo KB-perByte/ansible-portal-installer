@@ -54,11 +54,24 @@ class HelmDeployer(DeploymentBackend):
         # Build and push plugins unless skipped
         registry_url = None
         if not skip_build:
-            registry_client = RegistryClient(self.k8s, self.oc)
-            registry_config = config.registry or RegistryConfig(
-                url=registry_client.get_internal_registry_url(),
-                namespace=namespace,
-            )
+            # Determine registry URL
+            if config.registry:
+                registry_config = config.registry
+            else:
+                # Use OpenShift external registry route for push (requires auth)
+                # but will use internal service URL for Helm values (avoids TLS issues)
+                registry_route = self.oc.get_registry_route()
+                if registry_route:
+                    registry_base_url = registry_route
+                else:
+                    registry_base_url = "image-registry.openshift-image-registry.svc:5000"
+
+                registry_config = RegistryConfig(
+                    url=registry_base_url,
+                    namespace=namespace,
+                    tag=config.image_tag,
+                    insecure=True,
+                )
 
             registry_url = _build_and_push_plugins(
                 plugins_path=config.plugins_path,
@@ -79,20 +92,35 @@ class HelmDeployer(DeploymentBackend):
         # Create secrets
         self._create_secrets(namespace, release_name, config.aap, config.scm)
 
+        # Create registries ConfigMap for internal registry TLS skip
+        self._create_registries_configmap(namespace, release_name)
+
         # Generate admin password
         admin_password = config.admin_password or self._generate_password()
         admin_password_hash = self._hash_password(admin_password)
 
+        # Generate backend secret for Backstage auth
+        backend_secret = self._generate_password(32)
+
         # Get cluster router base
         cluster_router_base = self.oc.get_cluster_router_base()
 
+        # Strip tag from registry_url if present (since image_tag is passed separately)
+        # registry_url from build is full URL with tag, but Helm values need base URL only
+        base_registry_url = registry_url.rsplit(":", 1)[0] if ":" in registry_url else registry_url
+
+        # Use internal registry service URL for pod pulls (avoids TLS verification issues)
+        # Convert external route to internal service URL
+        internal_registry_url = f"image-registry.openshift-image-registry.svc:5000/{namespace}"
+
         # Generate Helm values
         values = generate_portal_values(
-            registry_url=registry_url,
+            registry_url=internal_registry_url,
             image_tag=config.image_tag,
             cluster_router_base=cluster_router_base,
             release_name=release_name,
             admin_password_hash=admin_password_hash,
+            backend_secret=backend_secret,
             check_ssl=config.check_ssl,
         )
 
@@ -106,7 +134,20 @@ class HelmDeployer(DeploymentBackend):
             namespace=namespace,
             values=values,
             timeout=timeout,
+            wait=False,  # Don't wait yet, we need to patch first
         )
+
+        # Patch deployment to add registries config volume for insecure registry
+        self._patch_deployment_for_insecure_registry(namespace, release_name)
+
+        # Now wait for deployment to be ready
+        console.print("\n[blue]Waiting for deployment to be ready...[/blue]")
+        import subprocess
+        subprocess.run(
+            ["kubectl", "rollout", "status", f"deployment/{release_name}", "-n", namespace, "--timeout=10m"],
+            check=True,
+        )
+        console.print("[green]✓[/green] Deployment ready")
 
         # Get portal URL
         portal_url = f"https://{release_name}-{namespace}.{cluster_router_base}"
@@ -326,6 +367,62 @@ class HelmDeployer(DeploymentBackend):
             )
             console.print("[green]✓[/green] Created SCM secret")
 
+    def _create_registries_configmap(self, namespace: str, release_name: str) -> None:
+        """Create ConfigMap for container registries configuration to skip TLS verification."""
+        console.print("\n[blue]Creating registries configuration...[/blue]")
+
+        # Create registries.conf content to skip TLS verification for internal registry
+        registries_conf = """[[registry]]
+location = "image-registry.openshift-image-registry.svc:5000"
+insecure = true
+
+[[registry]]
+location = "image-registry.openshift-image-registry.svc"
+insecure = true
+"""
+
+        configmap_name = f"{release_name}-registries-conf"
+
+        try:
+            # Create ConfigMap using kubectl
+            import subprocess
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.conf', delete=False) as f:
+                f.write(registries_conf)
+                conf_file = Path(f.name)
+
+            try:
+                result = subprocess.run(
+                    [
+                        "kubectl", "create", "configmap", configmap_name,
+                        "--from-file=10-internal-registry.conf=" + str(conf_file),
+                        "-n", namespace,
+                        "--dry-run=client",
+                        "-o", "yaml"
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+
+                subprocess.run(
+                    ["kubectl", "apply", "-f", "-", "-n", namespace],
+                    input=result.stdout,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+
+                console.print(f"[green]✓[/green] Created registries ConfigMap: {configmap_name}")
+            finally:
+                conf_file.unlink(missing_ok=True)
+
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Failed to create registries ConfigMap[/red]")
+            console.print(f"[red]{e.stderr}[/red]")
+            raise
+
     def _generate_password(self, length: int = 16) -> str:
         """Generate a random password."""
         return secrets.token_urlsafe(length)
@@ -334,3 +431,65 @@ class HelmDeployer(DeploymentBackend):
         """Hash password using bcrypt."""
         hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=10))
         return hashed.decode()
+
+    def _patch_deployment_for_insecure_registry(self, namespace: str, release_name: str) -> None:
+        """Patch deployment to add registries config volume for insecure internal registry."""
+        import subprocess
+        import json
+
+        console.print("[blue]Patching deployment for insecure registry support...[/blue]")
+
+        # JSON patch to add volume and volume mount for registries config
+        patch = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "volumes": [
+                            {
+                                "name": "registries-conf",
+                                "configMap": {
+                                    "name": f"{release_name}-registries-conf",
+                                    "defaultMode": 420,
+                                },
+                            }
+                        ],
+                        "initContainers": [
+                            {
+                                "name": "install-dynamic-plugins",
+                                "volumeMounts": [
+                                    {
+                                        "name": "registries-conf",
+                                        "mountPath": "/etc/containers/registries.conf.d",
+                                        "readOnly": True,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                }
+            }
+        }
+
+        try:
+            # Apply strategic merge patch
+            result = subprocess.run(
+                [
+                    "kubectl",
+                    "patch",
+                    "deployment",
+                    release_name,
+                    "-n",
+                    namespace,
+                    "--type=strategic",
+                    "--patch",
+                    json.dumps(patch),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            console.print(f"[green]✓[/green] Patched deployment for insecure registry support")
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Failed to patch deployment[/red]")
+            console.print(f"[red]{e.stderr}[/red]")
+            raise

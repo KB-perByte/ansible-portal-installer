@@ -163,48 +163,83 @@ def _check_prerequisites() -> None:
 
 
 def _build_plugins(plugins_path: Path) -> None:
-    """Build all plugins using yarn export-dynamic."""
+    """Build all plugins using rhdh-cli plugin package."""
+    # Resolve to absolute path
+    plugins_path = plugins_path.resolve()
     console.print(f"[blue]Building plugins from source: {plugins_path}[/blue]")
 
-    for plugin in PLUGINS:
-        console.print(f"  • Building {plugin}...")
+    # Add node_modules/.bin to PATH so rhdh-cli can be found
+    import os
+    env = os.environ.copy()
+    node_bin = str(plugins_path / "node_modules" / ".bin")
+    env["PATH"] = f"{node_bin}:{env.get('PATH', '')}"
 
-        try:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                console=console,
-            ) as progress:
-                progress.add_task(f"Building {plugin}...", total=None)
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            # Build all plugins with yarn build
+            progress.add_task("Running yarn build...", total=None)
+            subprocess.run(
+                ["yarn", "build"],
+                cwd=plugins_path,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
 
-                subprocess.run(
-                    ["yarn", "workspace", plugin, "run", "export-dynamic"],
-                    cwd=plugins_path,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
+            # Export plugins with rhdh-cli
+            progress.add_task("Exporting plugins with rhdh-cli...", total=None)
+            export_dir = plugins_path.parent / "dynamic-plugins"
+            export_dir.mkdir(exist_ok=True)
 
-            console.print(f"[green]✓[/green] Built {plugin}")
+            subprocess.run(
+                [str(plugins_path / "node_modules" / ".bin" / "rhdh-cli"), "plugin", "package", "--export-to", str(export_dir)],
+                cwd=plugins_path,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
 
-        except subprocess.CalledProcessError as e:
-            console.print(f"[red]Failed to build {plugin}[/red]")
-            console.print(f"[red]{e.stderr}[/red]")
-            raise click.Abort()
+        console.print(f"[green]✓[/green] All plugins built and exported successfully\n")
 
-    console.print("[green]✓[/green] All plugins built successfully\n")
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Failed to build plugins[/red]")
+        console.print(f"[red]{e.stderr}[/red]")
+        raise click.Abort()
+
 
 
 def _collect_plugin_tarballs(plugins_path: Path) -> List[Path]:
-    """Collect plugin tarballs from dist-dynamic directories."""
-    console.print("[blue]Collecting plugin tarballs...[/blue]")
+    """Collect plugin tarballs from dynamic-plugins export directory."""
+    # Resolve to absolute path
+    plugins_path = plugins_path.resolve()
+    console.print("[blue]Creating plugin tarballs...[/blue]")
 
-    tarballs = list(plugins_path.glob("plugins/*/dist-dynamic/*.tgz"))
+    # Plugins are exported as directories to dynamic-plugins (one level up from plugins_path)
+    export_dir = plugins_path.parent / "dynamic-plugins"
 
-    for tarball in tarballs:
-        console.print(f"  • {tarball.name}")
+    # Create tarballs from plugin directories
+    tarballs = []
+    for plugin_dir in export_dir.glob("ansible-*"):
+        if plugin_dir.is_dir():
+            tarball_path = export_dir / f"{plugin_dir.name}.tgz"
 
-    console.print(f"[green]✓[/green] Found {len(tarballs)} plugin tarballs\n")
+            # Create tarball
+            subprocess.run(
+                ["tar", "-czf", str(tarball_path), "-C", str(export_dir), plugin_dir.name],
+                check=True,
+                capture_output=True,
+            )
+
+            tarballs.append(tarball_path)
+            console.print(f"  • Created {tarball_path.name}")
+
+    console.print(f"[green]✓[/green] Created {len(tarballs)} plugin tarballs\n")
 
     return tarballs
 
@@ -216,34 +251,43 @@ def _create_auth_secret(namespace: str, release_name: str) -> None:
     secret_name = f"{release_name}-dynamic-plugins-registry-auth"
 
     try:
+        # Use podman/docker auth file if it exists
+        import os
+        import json
+        from pathlib import Path as PathlibPath
+
+        # Try to find auth file in standard locations
+        auth_paths = [
+            PathlibPath.home() / ".docker" / "config.json",
+            PathlibPath(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "containers" / "auth.json",
+            PathlibPath.home() / ".config" / "containers" / "auth.json",
+        ]
+
+        auth_json = None
+        for path in auth_paths:
+            if path.exists():
+                with open(path) as f:
+                    auth_json = json.load(f)
+                console.print(f"[green]✓[/green] Found auth config: {path}")
+                break
+
+        if not auth_json:
+            # Fallback: try oc registry login
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as auth_file:
+                auth_path = Path(auth_file.name)
+            try:
+                AuthSecretManager.get_oc_registry_auth(auth_path)
+                with open(auth_path) as f:
+                    auth_json = json.load(f)
+            finally:
+                auth_path.unlink(missing_ok=True)
+
+        # Write auth.json to temp file for secret creation
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as auth_file:
             auth_path = Path(auth_file.name)
-
-        # Get auth from oc registry login
-        AuthSecretManager.get_oc_registry_auth(auth_path)
+            json.dump(auth_json, auth_file)
 
         # Create secret using oc
-        subprocess.run(
-            [
-                "oc",
-                "create",
-                "secret",
-                "generic",
-                secret_name,
-                f"--from-file=auth.json={auth_path}",
-                "-n",
-                namespace,
-                "--dry-run=client",
-                "-o",
-                "yaml",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            stdout=subprocess.PIPE,
-        ).stdout
-
-        # Apply the secret
         result = subprocess.run(
             [
                 "oc",
@@ -277,6 +321,66 @@ def _create_auth_secret(namespace: str, release_name: str) -> None:
         console.print(f"[red]Failed to create auth secret[/red]")
         console.print(f"[red]{e.stderr}[/red]")
         raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]Failed to create auth secret: {e}[/red]")
+        raise click.Abort()
     finally:
         # Clean up auth file
-        auth_path.unlink(missing_ok=True)
+        if 'auth_path' in locals():
+            auth_path.unlink(missing_ok=True)
+
+
+def _build_and_push_plugins(
+    plugins_path: Path,
+    registry_config: RegistryConfig,
+    image_tag: str,
+    namespace: str,
+    release_name: str,
+    skip_plugin_build: bool = False,
+) -> str:
+    """Build and push plugins - helper function for deployer.
+
+    Returns:
+        Full image URL with tag (e.g., registry.example.com/namespace/image:tag)
+    """
+    console.print("[bold blue]Ansible Portal - Build Plugin Image[/bold blue]\n")
+
+    # Validate prerequisites
+    _check_prerequisites()
+
+    # Update registry config with provided tag
+    registry_config.tag = image_tag
+
+    # Build plugins
+    if not skip_plugin_build:
+        _build_plugins(plugins_path)
+    else:
+        console.print("[yellow]Skipping plugin build (reusing existing)[/yellow]")
+
+    # Collect plugin tarballs
+    tarballs = _collect_plugin_tarballs(plugins_path)
+
+    if len(tarballs) != 5:
+        console.print(
+            f"[red]Error: Expected 5 plugin tarballs, found {len(tarballs)}[/red]"
+        )
+        console.print("[yellow]Ensure all plugins are built before deploying[/yellow]")
+        raise click.Abort()
+
+    # Build and push OCI image
+    registry_client = RegistryClient(registry_config)
+    registry_client.build_plugin_image(plugins_path, tarballs)
+    registry_client.push_image()
+
+    # Validate image
+    registry_client.validate_image()
+
+    # Create auth secret
+    _create_auth_secret(namespace, release_name)
+
+    console.print(
+        f"\n[bold green]✓ Plugin image ready:[/bold green] "
+        f"{registry_config.full_image_url_with_tag}\n"
+    )
+
+    return registry_config.full_image_url_with_tag
