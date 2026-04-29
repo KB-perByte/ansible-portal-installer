@@ -6,6 +6,7 @@ import click
 from rich.console import Console
 
 from ..backends import BackendFactory, BackendType
+from ..backends.base import DeploymentBackend
 
 console = Console()
 
@@ -127,7 +128,7 @@ def teardown(
         sys.exit(1)
 
 
-def _delete_namespace(deployer, namespace: str) -> None:
+def _delete_namespace(deployer: DeploymentBackend, namespace: str) -> None:
     """Delete namespace (backend-specific)."""
     # For Helm/K8s backends
     try:

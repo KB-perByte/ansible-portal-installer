@@ -82,14 +82,14 @@ class AAPConfig(BaseModel):
 class SCMConfig(BaseModel):
     """Source Control Management (GitHub/GitLab) configuration."""
 
-    github_token: Optional[str] = Field(default=None, description="GitHub PAT")
-    github_client_id: Optional[str] = Field(default=None, description="GitHub OAuth client ID")
-    github_client_secret: Optional[str] = Field(
+    github_token: str | None = Field(default=None, description="GitHub PAT")
+    github_client_id: str | None = Field(default=None, description="GitHub OAuth client ID")
+    github_client_secret: str | None = Field(
         default=None, description="GitHub OAuth client secret"
     )
-    gitlab_token: Optional[str] = Field(default=None, description="GitLab PAT")
-    gitlab_client_id: Optional[str] = Field(default=None, description="GitLab OAuth client ID")
-    gitlab_client_secret: Optional[str] = Field(
+    gitlab_token: str | None = Field(default=None, description="GitLab PAT")
+    gitlab_client_id: str | None = Field(default=None, description="GitLab OAuth client ID")
+    gitlab_client_secret: str | None = Field(
         default=None, description="GitLab OAuth client secret"
     )
 
@@ -121,13 +121,20 @@ class DeploymentConfig(BaseModel):
     check_ssl: bool = Field(default=False, description="Verify SSL certificates")
 
     # Portal settings
-    cluster_router_base: Optional[str] = Field(
+    cluster_router_base: str | None = Field(
         default=None, description="OpenShift cluster router base domain (auto-detect for K8s)"
     )
-    admin_password: Optional[str] = Field(
+    admin_password: str | None = Field(
         default=None, description="Portal admin password (generated if not provided)"
     )
     skip_plugin_build: bool = Field(default=False, description="Skip plugin build step")
+    wait_for_rollout: bool = Field(
+        default=True, description="After Helm, wait for Kubernetes Deployment rollout"
+    )
+    rollout_timeout: str = Field(
+        default="40m",
+        description="Timeout for kubectl rollout status (e.g. 25m, 40m, 1h); RHDH+OCI is often slow",
+    )
 
     @field_validator("namespace")
     @classmethod
@@ -166,8 +173,8 @@ class PortalInstallerSettings(BaseSettings):
     )
 
     # OpenShift cluster
-    ocp_cluster_url: Optional[str] = Field(default=None, alias="OCP_CLUSTER_URL")
-    ocp_namespace: Optional[str] = Field(default=None, alias="OCP_NAMESPACE")
+    ocp_cluster_url: str | None = Field(default=None, alias="OCP_CLUSTER_URL")
+    ocp_namespace: str | None = Field(default=None, alias="OCP_NAMESPACE")
 
     # Deployment
     backend: str = Field(default="helm", alias="DEPLOYMENT_BACKEND")
@@ -176,25 +183,25 @@ class PortalInstallerSettings(BaseSettings):
     plugins_path: str = Field(default=".", alias="PLUGINS_PATH")
 
     # AAP
-    aap_host_url: Optional[str] = Field(default=None, alias="AAP_HOST_URL")
-    aap_token: Optional[str] = Field(default=None, alias="AAP_TOKEN")
-    oauth_client_id: Optional[str] = Field(default=None, alias="OAUTH_CLIENT_ID")
-    oauth_client_secret: Optional[str] = Field(default=None, alias="OAUTH_CLIENT_SECRET")
+    aap_host_url: str | None = Field(default=None, alias="AAP_HOST_URL")
+    aap_token: str | None = Field(default=None, alias="AAP_TOKEN")
+    oauth_client_id: str | None = Field(default=None, alias="OAUTH_CLIENT_ID")
+    oauth_client_secret: str | None = Field(default=None, alias="OAUTH_CLIENT_SECRET")
 
     # SCM
-    github_token: Optional[str] = Field(default=None, alias="GITHUB_TOKEN")
-    github_client_id: Optional[str] = Field(default=None, alias="GITHUB_CLIENT_ID")
-    github_client_secret: Optional[str] = Field(default=None, alias="GITHUB_CLIENT_SECRET")
-    gitlab_token: Optional[str] = Field(default=None, alias="GITLAB_TOKEN")
-    gitlab_client_id: Optional[str] = Field(default=None, alias="GITLAB_CLIENT_ID")
-    gitlab_client_secret: Optional[str] = Field(default=None, alias="GITLAB_CLIENT_SECRET")
+    github_token: str | None = Field(default=None, alias="GITHUB_TOKEN")
+    github_client_id: str | None = Field(default=None, alias="GITHUB_CLIENT_ID")
+    github_client_secret: str | None = Field(default=None, alias="GITHUB_CLIENT_SECRET")
+    gitlab_token: str | None = Field(default=None, alias="GITLAB_TOKEN")
+    gitlab_client_id: str | None = Field(default=None, alias="GITLAB_CLIENT_ID")
+    gitlab_client_secret: str | None = Field(default=None, alias="GITLAB_CLIENT_SECRET")
 
     # Registry
-    plugin_registry: Optional[str] = Field(default=None, alias="PLUGIN_REGISTRY")
+    plugin_registry: str | None = Field(default=None, alias="PLUGIN_REGISTRY")
     plugin_image_tag: str = Field(default="dev", alias="PLUGIN_IMAGE_TAG")
 
     # Portal admin
-    portal_admin_password: Optional[str] = Field(default=None, alias="PORTAL_ADMIN_PASSWORD")
+    portal_admin_password: str | None = Field(default=None, alias="PORTAL_ADMIN_PASSWORD")
 
     # Flags
     skip_plugin_build: bool = Field(default=False, alias="SKIP_PLUGIN_BUILD")
@@ -205,7 +212,7 @@ class HealthCheckConfig(BaseModel):
     """Health check configuration."""
 
     namespace: str
-    release_name: Optional[str] = None
+    release_name: str | None = None
     verbose: bool = False
     timeout_seconds: int = Field(default=300, description="Health check timeout")
 
@@ -214,6 +221,6 @@ class LogCollectionConfig(BaseModel):
     """Log collection configuration."""
 
     namespace: str
-    release_name: Optional[str] = None
-    output_dir: Optional[Path] = None
+    release_name: str | None = None
+    output_dir: Path | None = None
     tail_lines: int = Field(default=1000, description="Number of log lines to collect")

@@ -58,3 +58,4 @@ Thumbs.db
 portal-logs-*/
 *.tgz
 auth.json
+uv.lock

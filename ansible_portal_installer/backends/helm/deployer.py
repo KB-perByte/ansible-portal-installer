@@ -1,20 +1,37 @@
 """Helm deployment backend implementation."""
 
 import secrets
+import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import bcrypt
 from rich.console import Console
 
 from ...config import AAPConfig, DeploymentConfig, RegistryConfig, SCMConfig
 from ...k8s import KubernetesClient, OpenShiftClient
-from ...registry import RegistryClient
 from ..base import DeploymentBackend
 from .client import HelmClient, generate_portal_values
 
 console = Console()
+
+
+def _print_rollout_failure_hints(namespace: str, release_name: str) -> None:
+    """Print kubectl/oc commands to debug a stuck or slow rollout."""
+    console.print("\n[red]Deployment rollout did not complete in time.[/red]")
+    console.print(
+        "[dim]Common causes: OCI pull, install-dynamic-plugins, or readiness probe still failing.[/dim]\n"
+    )
+    console.print("[bold]Inspect:[/bold]")
+    console.print(f"  oc get pods -n {namespace} -o wide")
+    console.print(f"  oc describe deployment -n {namespace} {release_name}")
+    console.print(
+        f"  oc logs -n {namespace} deploy/{release_name} -c install-dynamic-plugins --tail=200"
+    )
+    console.print(
+        f"  oc logs -n {namespace} deploy/{release_name} -c backstage-backend --tail=200"
+    )
 
 
 class HelmDeployer(DeploymentBackend):
@@ -34,8 +51,8 @@ class HelmDeployer(DeploymentBackend):
         self,
         config: DeploymentConfig,
         skip_build: bool = False,
-        timeout: str = "10m",
-    ) -> Dict[str, Any]:
+        timeout: str = "15m",
+    ) -> dict[str, Any]:
         """Deploy portal using Helm chart."""
         from ...commands.build import _build_and_push_plugins
 
@@ -89,6 +106,13 @@ class HelmDeployer(DeploymentBackend):
                 console.print("[red]No registry config provided with --skip-build[/red]")
                 sys.exit(1)
 
+        if config.aap is None:
+            console.print(
+                "[red]AAP configuration is required. "
+                "Provide --aap-host, --aap-token, and OAuth client options (or set env vars).[/red]"
+            )
+            sys.exit(1)
+
         # Create secrets
         self._create_secrets(namespace, release_name, config.aap, config.scm)
 
@@ -109,13 +133,13 @@ class HelmDeployer(DeploymentBackend):
         # registry_url from build is full URL with tag, but Helm values need base URL only
         base_registry_url = registry_url.rsplit(":", 1)[0] if ":" in registry_url else registry_url
 
-        # Use internal registry service URL for pod pulls (avoids TLS verification issues)
-        # Convert external route to internal service URL
-        internal_registry_url = f"image-registry.openshift-image-registry.svc:5000/{namespace}"
+        # Use the external registry route for pod pulls (requires auth secret)
+        # The external route allows proper authentication via the auth secret
+        final_registry_url = base_registry_url
 
         # Generate Helm values
         values = generate_portal_values(
-            registry_url=internal_registry_url,
+            registry_url=final_registry_url,
             image_tag=config.image_tag,
             cluster_router_base=cluster_router_base,
             release_name=release_name,
@@ -140,14 +164,37 @@ class HelmDeployer(DeploymentBackend):
         # Patch deployment to add registries config volume for insecure registry
         self._patch_deployment_for_insecure_registry(namespace, release_name)
 
-        # Now wait for deployment to be ready
-        console.print("\n[blue]Waiting for deployment to be ready...[/blue]")
-        import subprocess
-        subprocess.run(
-            ["kubectl", "rollout", "status", f"deployment/{release_name}", "-n", namespace, "--timeout=10m"],
-            check=True,
-        )
-        console.print("[green]✓[/green] Deployment ready")
+        # Now wait for deployment to be ready (RHDH+OCI plugin init is often 15–30+ minutes)
+        if config.wait_for_rollout:
+            console.print(
+                f"\n[blue]Waiting for deployment to be ready (timeout: {config.rollout_timeout})...[/blue]"
+            )
+            try:
+                subprocess.run(
+                    [
+                        "kubectl",
+                        "rollout",
+                        "status",
+                        f"deployment/{release_name}",
+                        "-n",
+                        namespace,
+                        f"--timeout={config.rollout_timeout}",
+                    ],
+                    check=True,
+                )
+            except subprocess.CalledProcessError:
+                _print_rollout_failure_hints(namespace, release_name)
+                raise
+            console.print("[green]✓[/green] Deployment ready")
+        else:
+            console.print(
+                "\n[yellow]Skipped waiting for rollout (--skip-rollout-wait). "
+                "Pods may still be starting.[/yellow]"
+            )
+            console.print(
+                f"[dim]kubectl rollout status deployment/{release_name} -n {namespace} "
+                f"--timeout={config.rollout_timeout}[/dim]"
+            )
 
         # Get portal URL
         portal_url = f"https://{release_name}-{namespace}.{cluster_router_base}"
@@ -164,8 +211,8 @@ class HelmDeployer(DeploymentBackend):
         self,
         namespace: str,
         release_name: str,
-        chart_path: Optional[Path] = None,
-        values: Optional[Dict[str, Any]] = None,
+        chart_path: Path | None = None,
+        values: dict[str, Any] | None = None,
         skip_build: bool = False,
     ) -> None:
         """Upgrade existing Helm deployment."""
@@ -186,8 +233,6 @@ class HelmDeployer(DeploymentBackend):
 
         # Rebuild plugins if not skipped
         if not skip_build:
-            from ...commands.build import build as build_command
-            from click.testing import CliRunner
 
             console.print("[blue]Rebuilding plugins...[/blue]")
             # This will trigger the build command
@@ -248,7 +293,7 @@ class HelmDeployer(DeploymentBackend):
         self,
         namespace: str,
         release_name: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get Helm release status."""
         if not self.helm.release_exists(release_name, namespace):
             return None
@@ -262,14 +307,14 @@ class HelmDeployer(DeploymentBackend):
         self,
         namespace: str,
         release_name: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get Helm values."""
         return self.helm.get_values(release_name, namespace)
 
     def validate_deployment(
         self,
         namespace: str,
-        release_name: Optional[str] = None,
+        release_name: str | None = None,
         verbose: bool = False,
         timeout: int = 300,
     ) -> bool:
@@ -290,12 +335,11 @@ class HelmDeployer(DeploymentBackend):
     def collect_logs(
         self,
         namespace: str,
-        release_name: Optional[str],
+        release_name: str | None,
         output_dir: Path,
         tail_lines: int = 1000,
     ) -> None:
         """Collect diagnostic logs from Helm deployment."""
-        from datetime import datetime
 
         console.print("[bold blue]Ansible Portal - Collect Diagnostic Logs[/bold blue]\n")
 
@@ -331,7 +375,7 @@ class HelmDeployer(DeploymentBackend):
         namespace: str,
         release_name: str,
         aap_config: AAPConfig,
-        scm_config: Optional[SCMConfig],
+        scm_config: SCMConfig | None,
     ) -> None:
         """Create Kubernetes secrets."""
         console.print("\n[blue]Creating secrets...[/blue]")
@@ -371,8 +415,15 @@ class HelmDeployer(DeploymentBackend):
         """Create ConfigMap for container registries configuration to skip TLS verification."""
         console.print("\n[blue]Creating registries configuration...[/blue]")
 
-        # Create registries.conf content to skip TLS verification for internal registry
-        registries_conf = """[[registry]]
+        # Get external registry route
+        external_registry = self.oc.get_registry_route() or "default-route-openshift-image-registry.apps.example.com"
+
+        # Create registries.conf content to skip TLS verification for all OpenShift registries
+        registries_conf = f"""[[registry]]
+location = "{external_registry}"
+insecure = true
+
+[[registry]]
 location = "image-registry.openshift-image-registry.svc:5000"
 insecure = true
 
@@ -419,7 +470,7 @@ insecure = true
                 conf_file.unlink(missing_ok=True)
 
         except subprocess.CalledProcessError as e:
-            console.print(f"[red]Failed to create registries ConfigMap[/red]")
+            console.print("[red]Failed to create registries ConfigMap[/red]")
             console.print(f"[red]{e.stderr}[/red]")
             raise
 
@@ -434,8 +485,8 @@ insecure = true
 
     def _patch_deployment_for_insecure_registry(self, namespace: str, release_name: str) -> None:
         """Patch deployment to add registries config volume for insecure internal registry."""
-        import subprocess
         import json
+        import subprocess
 
         console.print("[blue]Patching deployment for insecure registry support...[/blue]")
 
@@ -472,7 +523,7 @@ insecure = true
 
         try:
             # Apply strategic merge patch
-            result = subprocess.run(
+            subprocess.run(
                 [
                     "kubectl",
                     "patch",
@@ -488,8 +539,8 @@ insecure = true
                 capture_output=True,
                 text=True,
             )
-            console.print(f"[green]✓[/green] Patched deployment for insecure registry support")
+            console.print("[green]✓[/green] Patched deployment for insecure registry support")
         except subprocess.CalledProcessError as e:
-            console.print(f"[red]Failed to patch deployment[/red]")
+            console.print("[red]Failed to patch deployment[/red]")
             console.print(f"[red]{e.stderr}[/red]")
             raise

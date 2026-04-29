@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import yaml
 from rich.console import Console
@@ -54,7 +54,7 @@ class HelmClient:
             )
             console.print("[green]✓[/green] Helm dependencies updated")
         except subprocess.CalledProcessError as e:
-            console.print(f"[red]Failed to update Helm dependencies[/red]")
+            console.print("[red]Failed to update Helm dependencies[/red]")
             console.print(f"[red]{e.stderr}[/red]")
             raise
 
@@ -63,7 +63,7 @@ class HelmClient:
         release_name: str,
         chart_path: Path,
         namespace: str,
-        values: Dict[str, Any],
+        values: dict[str, Any],
         timeout: str = "10m",
         wait: bool = True,
     ) -> None:
@@ -107,15 +107,16 @@ class HelmClient:
             ) as progress:
                 progress.add_task(f"{'Upgrading' if exists else 'Installing'} chart...", total=None)
 
-                result = subprocess.run(
+                subprocess.run(
                     cmd,
                     check=True,
                     capture_output=True,
                     text=True,
                 )
 
+            past = "upgraded" if action == "upgrade" else "installed"
             console.print(
-                f"[green]✓[/green] Helm release {action}d successfully: {release_name}"
+                f"[green]✓[/green] Helm release {past} successfully: {release_name}"
             )
 
         except subprocess.CalledProcessError as e:
@@ -143,11 +144,11 @@ class HelmClient:
             )
             console.print(f"[green]✓[/green] Uninstalled release: {release_name}")
         except subprocess.CalledProcessError as e:
-            console.print(f"[red]Failed to uninstall release[/red]")
+            console.print("[red]Failed to uninstall release[/red]")
             console.print(f"[red]{e.stderr}[/red]")
             raise
 
-    def get_values(self, release_name: str, namespace: str) -> Optional[Dict[str, Any]]:
+    def get_values(self, release_name: str, namespace: str) -> dict[str, Any] | None:
         """Get values for a Helm release."""
         try:
             result = subprocess.run(
@@ -156,11 +157,14 @@ class HelmClient:
                 capture_output=True,
                 text=True,
             )
-            return yaml.safe_load(result.stdout)
+            raw = yaml.safe_load(result.stdout)
+            if isinstance(raw, dict):
+                return raw
+            return None
         except subprocess.CalledProcessError:
             return None
 
-    def get_status(self, release_name: str, namespace: str) -> Optional[str]:
+    def get_status(self, release_name: str, namespace: str) -> str | None:
         """Get status of a Helm release."""
         try:
             result = subprocess.run(
@@ -182,8 +186,15 @@ def generate_portal_values(
     admin_password_hash: str,
     backend_secret: str,
     check_ssl: bool = False,
-) -> Dict[str, Any]:
-    """Generate Helm values for portal deployment."""
+) -> dict[str, Any]:
+    """Generate Helm values for portal deployment.
+
+    ``registry_url`` must be the OCI repository path without tag, e.g.
+    ``registry.host/project/image-name`` (same as ``RegistryConfig.full_image_url``).
+    Do not append the image name again; OpenShift requires ``<project>/<name>`` only.
+    """
+    # OCI ref: oci://<host>/<project>/<image>:<tag>!packagename
+    oci_base = f"oci://{registry_url}:{image_tag}"
     return {
         "redhat-developer-hub": {
             "global": {
@@ -194,25 +205,25 @@ def generate_portal_values(
                 "dynamic": {
                     "plugins": [
                         {
-                            "package": f"oci://{registry_url}/automation-portal:{image_tag}!ansible-plugin-scaffolder-backend-module-backstage-rhaap",
+                            "package": f"{oci_base}!ansible-plugin-scaffolder-backend-module-backstage-rhaap",
                             "disabled": False,
                             "pluginConfig": {},
                         },
                         {
-                            "package": f"oci://{registry_url}/automation-portal:{image_tag}!ansible-backstage-plugin-catalog-backend-module-rhaap",
+                            "package": f"{oci_base}!ansible-backstage-plugin-catalog-backend-module-rhaap",
                             "disabled": False,
                         },
                         {
-                            "package": f"oci://{registry_url}/automation-portal:{image_tag}!ansible-plugin-backstage-self-service",
+                            "package": f"{oci_base}!ansible-plugin-backstage-self-service",
                             "disabled": False,
                             "pluginConfig": {},
                         },
                         {
-                            "package": f"oci://{registry_url}/automation-portal:{image_tag}!ansible-backstage-plugin-auth-backend-module-rhaap-provider",
+                            "package": f"{oci_base}!ansible-backstage-plugin-auth-backend-module-rhaap-provider",
                             "disabled": False,
                         },
                         {
-                            "package": f"oci://{registry_url}/automation-portal:{image_tag}!ansible-plugin-backstage-rhaap",
+                            "package": f"{oci_base}!ansible-plugin-backstage-rhaap",
                             "disabled": False,
                             "pluginConfig": {},
                         },

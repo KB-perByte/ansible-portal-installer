@@ -7,12 +7,8 @@ This module provides a pluggable backend system for different deployment targets
 """
 
 from enum import Enum
-from typing import TYPE_CHECKING
 
 from .base import BuildBackend, DeploymentBackend
-
-if TYPE_CHECKING:
-    from .helm import HelmDeployer
 
 
 class BackendType(str, Enum):

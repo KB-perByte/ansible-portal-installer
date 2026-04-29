@@ -1,7 +1,6 @@
 """Upgrade command - Upgrade existing deployment."""
 
 from pathlib import Path
-from typing import Optional
 
 import click
 from rich.console import Console
@@ -47,7 +46,7 @@ def upgrade(
     backend: str,
     namespace: str,
     release_name: str,
-    chart_path: Optional[Path],
+    chart_path: Path | None,
     skip_plugin_build: bool,
 ) -> None:
     """Upgrade existing portal deployment.

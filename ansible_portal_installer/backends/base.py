@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ..config import DeploymentConfig
 
@@ -22,7 +22,7 @@ class DeploymentBackend(ABC):
         config: DeploymentConfig,
         skip_build: bool = False,
         timeout: str = "10m",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Deploy the portal.
 
         Args:
@@ -40,8 +40,8 @@ class DeploymentBackend(ABC):
         self,
         namespace: str,
         release_name: str,
-        chart_path: Optional[Path] = None,
-        values: Optional[Dict[str, Any]] = None,
+        chart_path: Path | None = None,
+        values: dict[str, Any] | None = None,
         skip_build: bool = False,
     ) -> None:
         """Upgrade existing deployment.
@@ -76,7 +76,7 @@ class DeploymentBackend(ABC):
         self,
         namespace: str,
         release_name: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get deployment status.
 
         Args:
@@ -93,7 +93,7 @@ class DeploymentBackend(ABC):
         self,
         namespace: str,
         release_name: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get deployment configuration values.
 
         Args:
@@ -109,7 +109,7 @@ class DeploymentBackend(ABC):
     def validate_deployment(
         self,
         namespace: str,
-        release_name: Optional[str] = None,
+        release_name: str | None = None,
         verbose: bool = False,
         timeout: int = 300,
     ) -> bool:
@@ -130,7 +130,7 @@ class DeploymentBackend(ABC):
     def collect_logs(
         self,
         namespace: str,
-        release_name: Optional[str],
+        release_name: str | None,
         output_dir: Path,
         tail_lines: int = 1000,
     ) -> None:

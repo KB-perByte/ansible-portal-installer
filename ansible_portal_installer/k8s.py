@@ -1,7 +1,7 @@
 """Kubernetes and OpenShift client operations."""
 
 import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any, cast
 
 from kubernetes import client, config
 from kubernetes.client.exceptions import ApiException
@@ -37,7 +37,7 @@ class KubernetesClient:
         contexts, active_context = config.list_kube_config_contexts()
         if not active_context:
             raise RuntimeError("No active Kubernetes context found")
-        return active_context["name"]
+        return str(active_context["name"])
 
     def namespace_exists(self, namespace: str) -> bool:
         """Check if namespace exists."""
@@ -60,19 +60,19 @@ class KubernetesClient:
         console.print(f"[green]✓[/green] Created namespace: {namespace}")
 
     def get_pods(
-        self, namespace: str, label_selector: Optional[str] = None
-    ) -> List[client.V1Pod]:
+        self, namespace: str, label_selector: str | None = None
+    ) -> list[client.V1Pod]:
         """Get pods in namespace with optional label selector."""
         try:
             result = self.core_v1.list_namespaced_pod(
                 namespace, label_selector=label_selector
             )
-            return result.items
+            return cast(list[client.V1Pod], result.items)
         except ApiException as e:
             console.print(f"[red]Failed to get pods: {e}[/red]")
             return []
 
-    def get_pod_status(self, namespace: str, pod_name: str) -> Dict[str, Any]:
+    def get_pod_status(self, namespace: str, pod_name: str) -> dict[str, Any]:
         """Get detailed pod status."""
         try:
             pod = self.core_v1.read_namespaced_pod(pod_name, namespace)
@@ -107,19 +107,20 @@ class KubernetesClient:
         self,
         namespace: str,
         pod_name: str,
-        container: Optional[str] = None,
+        container: str | None = None,
         tail_lines: int = 100,
         previous: bool = False,
     ) -> str:
         """Get pod logs."""
         try:
-            return self.core_v1.read_namespaced_pod_log(
+            raw = self.core_v1.read_namespaced_pod_log(
                 pod_name,
                 namespace,
                 container=container,
                 tail_lines=tail_lines,
                 previous=previous,
             )
+            return str(raw)
         except ApiException as e:
             return f"Error getting logs: {e}"
 
@@ -134,7 +135,7 @@ class KubernetesClient:
             raise
 
     def create_secret(
-        self, namespace: str, secret_name: str, data: Dict[str, str], secret_type: str = "Opaque"
+        self, namespace: str, secret_name: str, data: dict[str, str], secret_type: str = "Opaque"
     ) -> None:
         """Create or update a secret."""
         import base64
@@ -159,16 +160,23 @@ class KubernetesClient:
             raise RuntimeError(f"Failed to create/update secret {secret_name}: {e}") from e
 
     def create_or_update_secret(
-        self, namespace: str, name: str = None, secret_name: str = None, data: Dict[str, str] = None, secret_type: str = "Opaque"
+        self,
+        namespace: str,
+        name: str | None = None,
+        secret_name: str | None = None,
+        data: dict[str, str] | None = None,
+        secret_type: str = "Opaque",
     ) -> None:
         """Alias for create_secret (which already does create-or-update)."""
         # Accept either 'name' or 'secret_name' parameter
         actual_name = name or secret_name
         if not actual_name:
             raise ValueError("Either 'name' or 'secret_name' must be provided")
-        return self.create_secret(namespace, actual_name, data, secret_type)
+        if data is None:
+            raise ValueError("data must be provided")
+        self.create_secret(namespace, actual_name, data, secret_type)
 
-    def get_deployment(self, namespace: str, deployment_name: str) -> Optional[client.V1Deployment]:
+    def get_deployment(self, namespace: str, deployment_name: str) -> client.V1Deployment | None:
         """Get deployment by name."""
         try:
             return self.apps_v1.read_namespaced_deployment(deployment_name, namespace)
@@ -186,7 +194,7 @@ class OpenShiftClient:
     """OpenShift-specific operations using oc CLI."""
 
     @staticmethod
-    def run_oc_command(args: List[str], check: bool = True) -> subprocess.CompletedProcess:
+    def run_oc_command(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
         """Run oc command and return result."""
         try:
             return subprocess.run(
@@ -214,7 +222,7 @@ class OpenShiftClient:
     def get_current_user(cls) -> str:
         """Get current OpenShift user."""
         result = cls.run_oc_command(["whoami"])
-        return result.stdout.strip()
+        return str(result.stdout).strip()
 
     @classmethod
     def get_cluster_router_base(cls) -> str:
@@ -222,10 +230,10 @@ class OpenShiftClient:
         result = cls.run_oc_command(
             ["get", "ingresses.config", "cluster", "-o", "jsonpath={.spec.domain}"]
         )
-        return result.stdout.strip()
+        return str(result.stdout).strip()
 
     @classmethod
-    def get_registry_route(cls) -> Optional[str]:
+    def get_registry_route(cls) -> str | None:
         """Get OpenShift internal registry external route."""
         result = cls.run_oc_command(
             [
@@ -239,8 +247,9 @@ class OpenShiftClient:
             ],
             check=False,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
+        out = str(result.stdout).strip()
+        if result.returncode == 0 and out:
+            return out
         return None
 
     @classmethod
@@ -254,7 +263,7 @@ class OpenShiftClient:
         cls.run_oc_command(["new-project", namespace])
 
     @classmethod
-    def get_route_host(cls, namespace: str, label_selector: str) -> Optional[str]:
+    def get_route_host(cls, namespace: str, label_selector: str) -> str | None:
         """Get route host by label selector."""
         result = cls.run_oc_command(
             [
@@ -269,6 +278,7 @@ class OpenShiftClient:
             ],
             check=False,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
+        out = str(result.stdout).strip()
+        if result.returncode == 0 and out:
+            return out
         return None

@@ -3,13 +3,12 @@
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import List
 
 import click
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from ..config import DeploymentConfig, RegistryConfig
+from ..config import RegistryConfig
 from ..k8s import OpenShiftClient
 from ..registry import AuthSecretManager, RegistryClient
 
@@ -156,7 +155,7 @@ def _check_prerequisites() -> None:
             missing.append(f"{tool} ({desc})")
 
     if missing:
-        console.print(f"[red]Missing required tools:[/red]")
+        console.print("[red]Missing required tools:[/red]")
         for tool in missing:
             console.print(f"  • {tool}")
         raise click.Abort()
@@ -205,16 +204,16 @@ def _build_plugins(plugins_path: Path) -> None:
                 text=True,
             )
 
-        console.print(f"[green]✓[/green] All plugins built and exported successfully\n")
+        console.print("[green]✓[/green] All plugins built and exported successfully\n")
 
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]Failed to build plugins[/red]")
+        console.print("[red]Failed to build plugins[/red]")
         console.print(f"[red]{e.stderr}[/red]")
         raise click.Abort()
 
 
 
-def _collect_plugin_tarballs(plugins_path: Path) -> List[Path]:
+def _collect_plugin_tarballs(plugins_path: Path) -> list[Path]:
     """Collect plugin tarballs from dynamic-plugins export directory."""
     # Resolve to absolute path
     plugins_path = plugins_path.resolve()
@@ -252,8 +251,8 @@ def _create_auth_secret(namespace: str, release_name: str) -> None:
 
     try:
         # Use podman/docker auth file if it exists
-        import os
         import json
+        import os
         from pathlib import Path as PathlibPath
 
         # Try to find auth file in standard locations
@@ -318,7 +317,7 @@ def _create_auth_secret(namespace: str, release_name: str) -> None:
         console.print(f"[green]✓[/green] Created auth secret: {secret_name}")
 
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]Failed to create auth secret[/red]")
+        console.print("[red]Failed to create auth secret[/red]")
         console.print(f"[red]{e.stderr}[/red]")
         raise click.Abort()
     except Exception as e:

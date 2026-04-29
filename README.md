@@ -40,7 +40,7 @@ pip install ansible-portal-installer
 
 ### Required Tools
 
-- **Python 3.9+**: Runtime environment
+- **Python 3.10+**: Runtime environment
 - **oc**: OpenShift CLI
 - **helm**: Helm 3.x
 - **podman**: Container tool

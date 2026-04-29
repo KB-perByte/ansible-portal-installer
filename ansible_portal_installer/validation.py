@@ -1,6 +1,5 @@
 """Health check and validation operations."""
 
-from typing import Dict, List, Tuple
 
 import httpx
 from rich.console import Console
@@ -51,7 +50,7 @@ class HealthChecker:
         self._print_summary()
         return self.checks_failed == 0
 
-    def check_pod_health(self) -> Tuple[bool, str]:
+    def check_pod_health(self) -> tuple[bool, str]:
         """Check if pods are running and ready."""
         # Get RHDH pods
         rhdh_pods = self.k8s.get_pods(
@@ -90,7 +89,7 @@ class HealthChecker:
 
         return True, f"All pods healthy ({len(rhdh_pods)} RHDH, {len(pg_pods)} PostgreSQL)"
 
-    def check_plugin_loading(self) -> Tuple[bool, str]:
+    def check_plugin_loading(self) -> tuple[bool, str]:
         """Check if plugins were loaded successfully from init container."""
         rhdh_pods = self.k8s.get_pods(
             self.config.namespace, label_selector="app.kubernetes.io/name=backstage"
@@ -129,7 +128,7 @@ class HealthChecker:
 
         return True, f"All {len(expected_plugins)} plugins loaded successfully"
 
-    def check_route_accessibility(self) -> Tuple[bool, str]:
+    def check_route_accessibility(self) -> tuple[bool, str]:
         """Check if portal route is accessible."""
         route_host = self.oc.get_route_host(
             self.config.namespace, "app.kubernetes.io/name=backstage"
@@ -152,7 +151,7 @@ class HealthChecker:
         except httpx.RequestError as e:
             return False, f"Route not accessible: {e}"
 
-    def check_aap_connectivity(self) -> Tuple[bool, str]:
+    def check_aap_connectivity(self) -> tuple[bool, str]:
         """Check AAP connectivity via sync API."""
         route_host = self.oc.get_route_host(
             self.config.namespace, "app.kubernetes.io/name=backstage"
@@ -176,7 +175,7 @@ class HealthChecker:
             # Non-critical, AAP might not be configured yet
             return True, "AAP connectivity check skipped (not critical)"
 
-    def check_settings_management(self) -> Tuple[bool, str]:
+    def check_settings_management(self) -> tuple[bool, str]:
         """Check settings management API."""
         route_host = self.oc.get_route_host(
             self.config.namespace, "app.kubernetes.io/name=backstage"

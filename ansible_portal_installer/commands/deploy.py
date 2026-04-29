@@ -115,6 +115,18 @@ console = Console()
     envvar="SKIP_PLUGIN_BUILD",
 )
 @click.option(
+    "--skip-rollout-wait",
+    is_flag=True,
+    help="Do not wait for kubectl rollout after Helm (useful to debug slow/stuck pods)",
+    envvar="SKIP_ROLLOUT_WAIT",
+)
+@click.option(
+    "--rollout-timeout",
+    default="40m",
+    help="Timeout for kubectl rollout status (e.g. 30m, 1h). RHDH+plugin init is often slow.",
+    envvar="ROLLOUT_TIMEOUT",
+)
+@click.option(
     "--check-ssl/--no-check-ssl",
     default=False,
     help="Enable/disable SSL verification for AAP",
@@ -137,6 +149,8 @@ def deploy(
     image_tag: str,
     admin_password: str | None,
     skip_plugin_build: bool,
+    skip_rollout_wait: bool,
+    rollout_timeout: str,
     check_ssl: bool,
 ) -> None:
     """Deploy Ansible Portal using selected backend.
@@ -146,7 +160,7 @@ def deploy(
     2. Builds and pushes plugin artifacts (unless --skip-plugin-build)
     3. Creates required secrets/credentials
     4. Deploys portal using the selected backend
-    5. Waits for deployment to complete
+    5. Waits for deployment rollout (unless --skip-rollout-wait; tune with --rollout-timeout)
     6. Displays portal URL and admin credentials
 
     Backends:
@@ -205,6 +219,8 @@ def deploy(
         image_tag=image_tag,
         admin_password=admin_password,
         skip_plugin_build=skip_plugin_build,
+        wait_for_rollout=not skip_rollout_wait,
+        rollout_timeout=rollout_timeout,
         check_ssl=check_ssl,
     )
 

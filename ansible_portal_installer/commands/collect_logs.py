@@ -8,6 +8,8 @@ import click
 from rich.console import Console
 
 from ..backends import BackendFactory, BackendType
+from ..backends.helm.client import HelmClient
+from ..k8s import KubernetesClient, OpenShiftClient
 
 console = Console()
 
@@ -90,7 +92,7 @@ def collect_logs(
             tail_lines=tail,
         )
 
-        console.print(f"\n[bold green]✓ Log collection complete![/bold green]")
+        console.print("\n[bold green]✓ Log collection complete![/bold green]")
         console.print(f"[blue]Logs saved to:[/blue] {output_dir}\n")
         console.print(f"[yellow]Review {output_dir}/SUMMARY.txt for an overview[/yellow]\n")
 
@@ -108,7 +110,7 @@ def collect_logs(
 # Helper functions for Helm backend (imported by helm/deployer.py)
 
 
-def _collect_cluster_info(oc, output_dir: Path) -> None:
+def _collect_cluster_info(oc: OpenShiftClient, output_dir: Path) -> None:
     """Collect cluster information."""
     info_file = output_dir / "cluster-info.txt"
 
@@ -126,7 +128,7 @@ def _collect_cluster_info(oc, output_dir: Path) -> None:
         console.print(f"[yellow]Warning: Could not collect cluster info: {e}[/yellow]")
 
 
-def _collect_pod_info(k8s, namespace: str, output_dir: Path) -> None:
+def _collect_pod_info(k8s: KubernetesClient, namespace: str, output_dir: Path) -> None:
     """Collect pod list."""
     pods_file = output_dir / "pods.txt"
 
@@ -153,7 +155,7 @@ def _collect_pod_info(k8s, namespace: str, output_dir: Path) -> None:
         console.print(f"[yellow]Warning: Could not collect pod info: {e}[/yellow]")
 
 
-def _collect_pod_descriptions(k8s, namespace: str, output_dir: Path) -> None:
+def _collect_pod_descriptions(k8s: KubernetesClient, namespace: str, output_dir: Path) -> None:
     """Collect detailed pod descriptions."""
     try:
         pods = k8s.get_pods(namespace)
@@ -175,7 +177,7 @@ def _collect_pod_descriptions(k8s, namespace: str, output_dir: Path) -> None:
         console.print(f"[yellow]Warning: Could not collect pod descriptions: {e}[/yellow]")
 
 
-def _collect_pod_logs(k8s, namespace: str, output_dir: Path, tail: int) -> None:
+def _collect_pod_logs(k8s: KubernetesClient, namespace: str, output_dir: Path, tail: int) -> None:
     """Collect pod logs."""
     try:
         pods = k8s.get_pods(namespace)
@@ -220,7 +222,7 @@ def _collect_pod_logs(k8s, namespace: str, output_dir: Path, tail: int) -> None:
         console.print(f"[yellow]Warning: Could not collect pod logs: {e}[/yellow]")
 
 
-def _collect_events(k8s, namespace: str, output_dir: Path) -> None:
+def _collect_events(k8s: KubernetesClient, namespace: str, output_dir: Path) -> None:
     """Collect namespace events."""
     events_file = output_dir / "events.txt"
 
@@ -249,7 +251,9 @@ def _collect_events(k8s, namespace: str, output_dir: Path) -> None:
         console.print(f"[yellow]Warning: Could not collect events: {e}[/yellow]")
 
 
-def _collect_helm_status(helm, release_name: str, namespace: str, output_dir: Path) -> None:
+def _collect_helm_status(
+    helm: HelmClient, release_name: str, namespace: str, output_dir: Path
+) -> None:
     """Collect Helm release status."""
     helm_file = output_dir / "helm-status.txt"
 
@@ -276,8 +280,13 @@ def _collect_helm_status(helm, release_name: str, namespace: str, output_dir: Pa
         console.print(f"[yellow]Warning: Could not collect Helm status: {e}[/yellow]")
 
 
-def _collect_resources(k8s, oc, namespace: str, output_dir: Path) -> None:
-    """Collect resource manifests."""
+def _collect_resources(
+    k8s: KubernetesClient,
+    _oc: OpenShiftClient,
+    namespace: str,
+    output_dir: Path,
+) -> None:
+    """Collect resource manifests (OpenShift client reserved for future route/DC dumps)."""
     resources_file = output_dir / "resources.txt"
 
     try:

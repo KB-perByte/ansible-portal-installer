@@ -5,7 +5,6 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import List, Optional
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -41,7 +40,7 @@ class RegistryClient:
     def build_plugin_image(
         self,
         plugins_path: Path,
-        plugin_tarballs: List[Path],
+        plugin_tarballs: list[Path],
     ) -> None:
         """Build OCI image from plugin tarballs."""
         console.print(f"[blue]Building OCI image: {self.config.full_image_url_with_tag}[/blue]")
@@ -71,7 +70,7 @@ class RegistryClient:
                 ) as progress:
                     progress.add_task("Building OCI image...", total=None)
 
-                    result = subprocess.run(
+                    subprocess.run(
                         [
                             "podman",
                             "build",
@@ -91,7 +90,7 @@ class RegistryClient:
                 )
 
             except subprocess.CalledProcessError as e:
-                console.print(f"[red]Failed to build OCI image[/red]")
+                console.print("[red]Failed to build OCI image[/red]")
                 console.print(f"[red]{e.stderr}[/red]")
                 raise
 
@@ -126,11 +125,11 @@ class RegistryClient:
             console.print(f"[green]✓[/green] Pushed image: {self.config.full_image_url_with_tag}")
 
         except subprocess.CalledProcessError as e:
-            console.print(f"[red]Failed to push image[/red]")
+            console.print("[red]Failed to push image[/red]")
             console.print(f"[red]{e.stderr}[/red]")
             raise
 
-    def inspect_image(self) -> Optional[dict]:
+    def inspect_image(self) -> dict | None:
         """Inspect OCI image in registry."""
         try:
             cmd = ["skopeo", "inspect", f"docker://{self.config.full_image_url_with_tag}"]
@@ -145,7 +144,10 @@ class RegistryClient:
                 text=True,
             )
 
-            return json.loads(result.stdout)
+            data = json.loads(result.stdout)
+            if isinstance(data, dict):
+                return data
+            return None
 
         except subprocess.CalledProcessError:
             return None
@@ -198,6 +200,6 @@ class AuthSecretManager:
             )
             console.print(f"[green]✓[/green] Generated registry auth: {output_file}")
         except subprocess.CalledProcessError as e:
-            console.print(f"[red]Failed to get registry auth from oc[/red]")
+            console.print("[red]Failed to get registry auth from oc[/red]")
             console.print(f"[red]{e.stderr}[/red]")
             raise

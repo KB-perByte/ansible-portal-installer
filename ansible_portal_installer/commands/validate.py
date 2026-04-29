@@ -6,6 +6,7 @@ import click
 from rich.console import Console
 
 from ..backends import BackendFactory, BackendType
+from ..k8s import KubernetesClient
 
 console = Console()
 
@@ -98,14 +99,12 @@ def validate(
         sys.exit(2)
 
 
-def _auto_detect_namespace(k8s) -> str | None:
+def _auto_detect_namespace(k8s: KubernetesClient) -> str | None:
     """Auto-detect namespace with portal deployment.
 
     This function is kept for backward compatibility but is now
     delegated to the backend implementation.
     """
-    from ..k8s import KubernetesClient
-
     console.print("[blue]Auto-detecting namespace...[/blue]")
 
     # Get all namespaces
@@ -116,7 +115,7 @@ def _auto_detect_namespace(k8s) -> str | None:
         return None
 
     # Find namespaces with RHDH deployments
-    portal_namespaces = []
+    portal_namespaces: list[str] = []
 
     for ns in namespaces.items:
         ns_name = ns.metadata.name
@@ -141,7 +140,7 @@ def _auto_detect_namespace(k8s) -> str | None:
         return None
 
 
-def _auto_detect_release(k8s, namespace: str) -> str | None:
+def _auto_detect_release(k8s: KubernetesClient, namespace: str) -> str | None:
     """Auto-detect Helm release name.
 
     This function is kept for backward compatibility but is now
@@ -158,23 +157,23 @@ def _auto_detect_release(k8s, namespace: str) -> str | None:
         console.print(f"[yellow]Could not list deployments: {e}[/yellow]")
         return None
 
-    releases = set()
+    releases: set[str] = set()
     for deployment in deployments.items:
         if deployment.metadata.labels:
             release = deployment.metadata.labels.get("app.kubernetes.io/instance")
             if release:
-                releases.add(release)
+                releases.add(str(release))
 
     if len(releases) == 0:
         console.print("[yellow]No Helm releases found[/yellow]")
         return None
     elif len(releases) == 1:
-        release = list(releases)[0]
-        console.print(f"[green]✓[/green] Detected release: {release}")
-        return release
+        only = next(iter(releases))
+        console.print(f"[green]✓[/green] Detected release: {only}")
+        return only
     else:
         console.print("[yellow]Multiple Helm releases found:[/yellow]")
-        for r in releases:
+        for r in sorted(releases):
             console.print(f"  - {r}")
         console.print("[yellow]Using first release[/yellow]")
-        return list(releases)[0]
+        return sorted(releases)[0]
