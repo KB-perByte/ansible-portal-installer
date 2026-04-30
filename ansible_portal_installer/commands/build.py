@@ -309,8 +309,8 @@ def _create_auth_secret(namespace: str, release_name: str) -> None:
             json.dump(auth_json, auth_file)
 
         # Create secret using oc
-        # Note: Must be kubernetes.io/dockerconfigjson type with .dockerconfigjson key
-        # to work with standard Kubernetes imagePullSecrets
+        # Note: Must be Opaque type with auth.json key for RHDH init container
+        # The init container mounts this at /opt/app-root/src/.config/containers/auth.json
         result = subprocess.run(
             [
                 "oc",
@@ -318,8 +318,7 @@ def _create_auth_secret(namespace: str, release_name: str) -> None:
                 "secret",
                 "generic",
                 secret_name,
-                f"--from-file=.dockerconfigjson={auth_path}",
-                "--type=kubernetes.io/dockerconfigjson",
+                f"--from-file=auth.json={auth_path}",
                 "-n",
                 namespace,
                 "--dry-run=client",

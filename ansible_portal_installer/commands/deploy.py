@@ -8,7 +8,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from ..backends import BackendFactory, BackendType
-from ..config import AAPConfig, DeploymentConfig, RegistryConfig, SCMConfig
+from ..config import AAPConfig, DeploymentConfig, PortalInstallerSettings, RegistryConfig, SCMConfig
 from ..oauth_setup import prompt_oauth_setup, validate_oauth_credentials
 
 console = Console()
@@ -25,52 +25,52 @@ console = Console()
 @click.option(
     "--namespace",
     "-n",
-    required=True,
-    help="Target namespace/location",
+    default=None,
+    help="Target namespace/location (or set OCP_NAMESPACE in .env)",
     envvar="OCP_NAMESPACE",
 )
 @click.option(
     "--release-name",
-    default="rhaap-portal-dev",
-    help="Deployment identifier",
+    default=None,
+    help="Deployment identifier (or set RELEASE_NAME in .env)",
     envvar="RELEASE_NAME",
 )
 @click.option(
     "--chart-path",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
-    default=Path("../ansible-portal-chart"),
-    help="Path to deployment configuration",
+    default=None,
+    help="Path to deployment configuration (or set CHART_PATH in .env)",
     envvar="CHART_PATH",
 )
 @click.option(
     "--plugins-path",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
-    default=Path.cwd(),
-    help="Path to ansible-rhdh-plugins repository",
+    default=None,
+    help="Path to ansible-rhdh-plugins repository (or set PLUGINS_PATH in .env)",
     envvar="PLUGINS_PATH",
 )
 @click.option(
     "--aap-host",
-    required=True,
-    help="AAP controller URL",
+    default=None,
+    help="AAP controller URL (or set AAP_HOST_URL in .env)",
     envvar="AAP_HOST_URL",
 )
 @click.option(
     "--aap-token",
-    required=True,
-    help="AAP API token",
+    default=None,
+    help="AAP API token (or set AAP_TOKEN in .env)",
     envvar="AAP_TOKEN",
 )
 @click.option(
     "--oauth-client-id",
-    required=True,
-    help="AAP OAuth client ID",
+    default=None,
+    help="AAP OAuth client ID (or set OAUTH_CLIENT_ID in .env)",
     envvar="OAUTH_CLIENT_ID",
 )
 @click.option(
     "--oauth-client-secret",
-    required=True,
-    help="AAP OAuth client secret",
+    default=None,
+    help="AAP OAuth client secret (or set OAUTH_CLIENT_SECRET in .env)",
     envvar="OAUTH_CLIENT_SECRET",
 )
 @click.option(
@@ -94,14 +94,24 @@ console = Console()
     envvar="GITLAB_TOKEN",
 )
 @click.option(
+    "--gitlab-client-id",
+    help="GitLab OAuth client ID",
+    envvar="GITLAB_CLIENT_ID",
+)
+@click.option(
+    "--gitlab-client-secret",
+    help="GitLab OAuth client secret",
+    envvar="GITLAB_CLIENT_SECRET",
+)
+@click.option(
     "--registry",
     help="Registry URL (default: auto-detect)",
     envvar="PLUGIN_REGISTRY",
 )
 @click.option(
     "--image-tag",
-    default="dev",
-    help="Plugin image tag",
+    default=None,
+    help="Plugin image tag (or set PLUGIN_IMAGE_TAG in .env)",
     envvar="PLUGIN_IMAGE_TAG",
 )
 @click.option(
@@ -150,20 +160,22 @@ console = Console()
 )
 def deploy(
     backend: str,
-    namespace: str,
-    release_name: str,
-    chart_path: Path,
-    plugins_path: Path,
-    aap_host: str,
-    aap_token: str,
-    oauth_client_id: str,
-    oauth_client_secret: str,
+    namespace: str | None,
+    release_name: str | None,
+    chart_path: Path | None,
+    plugins_path: Path | None,
+    aap_host: str | None,
+    aap_token: str | None,
+    oauth_client_id: str | None,
+    oauth_client_secret: str | None,
     github_token: str | None,
     github_client_id: str | None,
     github_client_secret: str | None,
     gitlab_token: str | None,
+    gitlab_client_id: str | None,
+    gitlab_client_secret: str | None,
     registry: str | None,
-    image_tag: str,
+    image_tag: str | None,
     admin_password: str | None,
     skip_plugin_build: bool,
     skip_rollout_wait: bool,
@@ -183,11 +195,73 @@ def deploy(
     5. Waits for deployment rollout (unless --skip-rollout-wait; tune with --rollout-timeout)
     6. Displays portal URL and admin credentials
 
+    Configuration is loaded from (in order of precedence):
+    1. Command-line flags (highest priority)
+    2. Environment variables
+    3. .env file in current directory
+    4. Default values (lowest priority)
+
     Backends:
     - helm: Deploy to Kubernetes/OpenShift using Helm charts
     - operator: Deploy using OpenShift Operators (future)
     - rhel: Install as RHEL packages (future)
     """
+    # Load settings from .env file (if it exists)
+    try:
+        settings = PortalInstallerSettings()
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not load .env file: {e}[/yellow]")
+        settings = None
+
+    # Merge CLI args with .env settings (CLI args take precedence)
+    # Only use .env value if CLI arg is None (not provided)
+    if settings:
+        namespace = namespace or settings.ocp_namespace
+        release_name = release_name or settings.release_name
+        chart_path = chart_path or Path(settings.chart_path)
+        plugins_path = plugins_path or Path(settings.plugins_path)
+        aap_host = aap_host or settings.aap_host_url
+        aap_token = aap_token or settings.aap_token
+        oauth_client_id = oauth_client_id or settings.oauth_client_id
+        oauth_client_secret = oauth_client_secret or settings.oauth_client_secret
+        github_token = github_token or settings.github_token
+        github_client_id = github_client_id or settings.github_client_id
+        github_client_secret = github_client_secret or settings.github_client_secret
+        gitlab_token = gitlab_token or settings.gitlab_token
+        gitlab_client_id = gitlab_client_id or settings.gitlab_client_id
+        gitlab_client_secret = gitlab_client_secret or settings.gitlab_client_secret
+        registry = registry or settings.plugin_registry
+        image_tag = image_tag or settings.plugin_image_tag
+        admin_password = admin_password or settings.portal_admin_password
+
+    # Apply defaults for optional fields if still None
+    namespace = namespace or None  # Will fail validation below if still None
+    release_name = release_name or "rhaap-portal-dev"
+    chart_path = chart_path or Path("../ansible-portal-chart")
+    plugins_path = plugins_path or Path.cwd()
+    image_tag = image_tag or "dev"
+
+    # Validate required fields
+    missing = []
+    if not namespace:
+        missing.append("--namespace (or OCP_NAMESPACE in .env)")
+    if not aap_host:
+        missing.append("--aap-host (or AAP_HOST_URL in .env)")
+    if not aap_token:
+        missing.append("--aap-token (or AAP_TOKEN in .env)")
+    if not oauth_client_id:
+        missing.append("--oauth-client-id (or OAUTH_CLIENT_ID in .env)")
+    if not oauth_client_secret:
+        missing.append("--oauth-client-secret (or OAUTH_CLIENT_SECRET in .env)")
+
+    if missing:
+        console.print("[bold red]Missing required configuration:[/bold red]")
+        for item in missing:
+            console.print(f"  • {item}")
+        console.print("\n[yellow]Provide values via CLI flags, environment variables, or .env file[/yellow]")
+        console.print("[dim]Example .env file: cp .env.example .env (then edit)[/dim]\n")
+        raise click.Abort()
+
     # Validate OAuth credentials
     if not validate_oauth_credentials(aap_host, aap_token, oauth_client_id, oauth_client_secret):
         # Try to get cluster router base for portal route estimation
@@ -221,17 +295,24 @@ def deploy(
             github_client_id=github_client_id,
             github_client_secret=github_client_secret,
             gitlab_token=gitlab_token,
+            gitlab_client_id=gitlab_client_id,
+            gitlab_client_secret=gitlab_client_secret,
         )
 
     registry_config = None
     if registry:
         # Parse registry URL into components
-        # Format: registry-url/namespace/image-name
+        # Format: registry-url/namespace/image-name or registry-url/namespace/project/image-name
         parts = registry.split("/")
-        if len(parts) >= 2:
+        if len(parts) >= 3:
             registry_url = parts[0]
-            registry_namespace = parts[1] if len(parts) >= 2 else namespace
-            image_name = parts[2] if len(parts) >= 3 else "automation-portal"
+            registry_namespace = parts[1]
+            # Join remaining parts as image name (handles multi-level paths like tenant/image-name)
+            image_name = "/".join(parts[2:])
+        elif len(parts) == 2:
+            registry_url = parts[0]
+            registry_namespace = parts[1]
+            image_name = "automation-portal"
         else:
             registry_url = registry
             registry_namespace = namespace

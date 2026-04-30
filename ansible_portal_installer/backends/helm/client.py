@@ -204,28 +204,114 @@ def generate_portal_values(
                 "imageTagInfo": image_tag,
                 "dynamic": {
                     "plugins": [
+                        # Built-in RBAC plugin
+                        {
+                            "package": "./dynamic-plugins/dist/backstage-community-plugin-rbac",
+                            "disabled": False,
+                        },
+                        # Ansible OCI plugins
                         {
                             "package": f"{oci_base}!ansible-plugin-scaffolder-backend-module-backstage-rhaap",
                             "disabled": False,
-                            "pluginConfig": {},
+                            "integrity": "",
+                            "pluginConfig": {
+                                "dynamicPlugins": {
+                                    "backend": {
+                                        "ansible.plugin-scaffolder-backend-module-backstage-rhaap": None
+                                    }
+                                }
+                            },
                         },
                         {
                             "package": f"{oci_base}!ansible-backstage-plugin-catalog-backend-module-rhaap",
                             "disabled": False,
+                            "integrity": "",
                         },
                         {
                             "package": f"{oci_base}!ansible-plugin-backstage-self-service",
                             "disabled": False,
-                            "pluginConfig": {},
+                            "integrity": "",
+                            "pluginConfig": {
+                                "dynamicPlugins": {
+                                    "frontend": {
+                                        "ansible.plugin-backstage-self-service": {
+                                            "dynamicRoutes": [
+                                                {"importName": "LandingPage", "path": "/"},
+                                                {"importName": "SelfServicePage", "path": "/self-service"},
+                                                {"importName": "ExecutionEnvironmentPage", "path": "/self-service/ee"},
+                                            ],
+                                            "mountPoints": [
+                                                {"importName": "LocationListener", "mountPoint": "application/listener"}
+                                            ],
+                                            "providerSettings": [
+                                                {
+                                                    "description": "Sign in with RHAAP",
+                                                    "provider": "ansible.auth.rhaap",
+                                                    "title": "RHAAP",
+                                                }
+                                            ],
+                                            "scaffolderFieldExtensions": [
+                                                {"importName": "AAPTokenFieldExtension"},
+                                                {"importName": "AAPResourcePickerExtension"},
+                                            ],
+                                            "signInPage": {"importName": "SignInPage"},
+                                        }
+                                    }
+                                }
+                            },
                         },
                         {
                             "package": f"{oci_base}!ansible-backstage-plugin-auth-backend-module-rhaap-provider",
                             "disabled": False,
+                            "integrity": "",
+                            "pluginConfig": {},
                         },
                         {
                             "package": f"{oci_base}!ansible-plugin-backstage-rhaap",
                             "disabled": False,
+                            "integrity": "",
                             "pluginConfig": {},
+                        },
+                        # Built-in RHDH plugins from ./dynamic-plugins/dist/
+                        {
+                            "package": "./dynamic-plugins/dist/backstage-plugin-scaffolder-backend-module-github-dynamic",
+                            "disabled": False,
+                        },
+                        {
+                            "package": "./dynamic-plugins/dist/backstage-plugin-scaffolder-backend-module-gitlab-dynamic",
+                            "disabled": False,
+                        },
+                        {
+                            "package": "./dynamic-plugins/dist/red-hat-developer-hub-backstage-plugin-catalog-backend-module-marketplace-dynamic",
+                            "disabled": True,
+                        },
+                        {
+                            "package": "./dynamic-plugins/dist/red-hat-developer-hub-backstage-plugin-quickstart",
+                            "disabled": True,
+                        },
+                        {
+                            "package": "./dynamic-plugins/dist/red-hat-developer-hub-backstage-plugin-adoption-insights",
+                            "disabled": True,
+                        },
+                        {
+                            "package": "./dynamic-plugins/dist/red-hat-developer-hub-backstage-plugin-adoption-insights-backend-dynamic",
+                            "disabled": True,
+                        },
+                        {
+                            "package": "./dynamic-plugins/dist/red-hat-developer-hub-backstage-plugin-analytics-module-adoption-insights-dynamic",
+                            "disabled": True,
+                        },
+                        {
+                            "package": "./dynamic-plugins/dist/red-hat-developer-hub-backstage-plugin-dynamic-home-page",
+                            "disabled": True,
+                        },
+                        {
+                            "package": "./dynamic-plugins/dist/red-hat-developer-hub-backstage-plugin-marketplace",
+                            "disabled": True,
+                        },
+                        {
+                            "package": "./dynamic-plugins/dist/red-hat-developer-hub-backstage-plugin-marketplace-backend-dynamic",
+                            "disabled": True,
                         },
                     ]
                 },
@@ -243,6 +329,43 @@ def generate_portal_values(
                                 "secretKeyRef": {
                                     "name": f"{release_name}-postgresql",
                                     "key": "postgres-password",
+                                }
+                            },
+                        },
+                        # AAP credentials from secrets-rhaap-portal secret
+                        {
+                            "name": "AAP_HOST_URL",
+                            "valueFrom": {
+                                "secretKeyRef": {
+                                    "name": "secrets-rhaap-portal",
+                                    "key": "aap-host-url",
+                                }
+                            },
+                        },
+                        {
+                            "name": "AAP_TOKEN",
+                            "valueFrom": {
+                                "secretKeyRef": {
+                                    "name": "secrets-rhaap-portal",
+                                    "key": "aap-token",
+                                }
+                            },
+                        },
+                        {
+                            "name": "OAUTH_CLIENT_ID",
+                            "valueFrom": {
+                                "secretKeyRef": {
+                                    "name": "secrets-rhaap-portal",
+                                    "key": "oauth-client-id",
+                                }
+                            },
+                        },
+                        {
+                            "name": "OAUTH_CLIENT_SECRET",
+                            "valueFrom": {
+                                "secretKeyRef": {
+                                    "name": "secrets-rhaap-portal",
+                                    "key": "oauth-client-secret",
                                 }
                             },
                         },

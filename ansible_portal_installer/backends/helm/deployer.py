@@ -3,11 +3,17 @@
 import secrets
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 import bcrypt
 from rich.console import Console
+from rich.live import Live
+from rich.panel import Panel
+from rich.spinner import Spinner
+from rich.table import Table
+from rich.text import Text
 
 from ...config import AAPConfig, DeploymentConfig, RegistryConfig, SCMConfig
 from ...k8s import KubernetesClient, OpenShiftClient
@@ -32,6 +38,235 @@ def _print_rollout_failure_hints(namespace: str, release_name: str) -> None:
     console.print(
         f"  oc logs -n {namespace} deploy/{release_name} -c backstage-backend --tail=200"
     )
+
+
+def _wait_for_deployment_with_logs(
+    namespace: str, release_name: str, timeout: str, k8s: KubernetesClient
+) -> bool:
+    """Wait for deployment with live log streaming and status updates.
+
+    Args:
+        namespace: Kubernetes namespace
+        release_name: Deployment name
+        timeout: Timeout string (e.g., "40m")
+        k8s: Kubernetes client
+
+    Returns:
+        True if deployment succeeded, False otherwise
+    """
+    import re
+    from datetime import datetime, timedelta
+
+    # Parse timeout (e.g., "40m" -> 40 minutes)
+    timeout_match = re.match(r"(\d+)([smh])", timeout)
+    if timeout_match:
+        value, unit = timeout_match.groups()
+        multiplier = {"s": 1, "m": 60, "h": 3600}[unit]
+        timeout_seconds = int(value) * multiplier
+    else:
+        timeout_seconds = 2400  # Default 40 minutes
+
+    start_time = datetime.now()
+    end_time = start_time + timedelta(seconds=timeout_seconds)
+
+    console.print(f"\n[blue]Waiting for deployment (timeout: {timeout})...[/blue]")
+    console.print("[dim]Showing real-time progress and logs...[/dim]\n")
+
+    pod_name = None
+    last_status = None
+    last_log_timestamp = None
+    init_container_complete = False
+    backend_started = False
+    log_buffer = []  # Buffer to track seen logs
+
+    while datetime.now() < end_time:
+        elapsed = int((datetime.now() - start_time).total_seconds())
+        remaining = timeout_seconds - elapsed
+
+        # Get pod status
+        try:
+            # Get pod details including state reasons
+            result = subprocess.run(
+                [
+                    "kubectl", "get", "pods",
+                    "-n", namespace,
+                    "-l", f"app.kubernetes.io/instance={release_name}",
+                    "-o", "json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            if result.returncode == 0 and result.stdout:
+                import json
+                try:
+                    pod_data = json.loads(result.stdout)
+                    if pod_data.get("items"):
+                        pod = pod_data["items"][0]
+                        current_pod_name = pod["metadata"]["name"]
+                        phase = pod["status"].get("phase", "Unknown")
+
+                        # Get container states
+                        init_statuses = pod["status"].get("initContainerStatuses", [])
+                        container_statuses = pod["status"].get("containerStatuses", [])
+
+                        # Update pod name if changed
+                        if pod_name != current_pod_name:
+                            pod_name = current_pod_name
+                            log_buffer = []  # Reset log buffer for new pod
+                            console.print(f"\n[cyan]→ Pod:[/cyan] {pod_name}")
+
+                        # Build detailed status
+                        init_info = ""
+                        if init_statuses:
+                            init_container = init_statuses[0]  # Usually just one init container
+                            state = init_container.get("state", {})
+                            if "waiting" in state:
+                                reason = state["waiting"].get("reason", "Waiting")
+                                init_info = f"Init: {reason}"
+                            elif "running" in state:
+                                init_info = "Init: Running"
+                            elif "terminated" in state:
+                                exit_code = state["terminated"].get("exitCode", 0)
+                                if exit_code == 0:
+                                    init_info = "Init: ✓ Complete"
+                                else:
+                                    reason = state["terminated"].get("reason", "Failed")
+                                    init_info = f"Init: ✗ {reason}"
+
+                        container_info = ""
+                        if container_statuses:
+                            backend = container_statuses[0]
+                            ready = backend.get("ready", False)
+                            state = backend.get("state", {})
+                            if "waiting" in state:
+                                reason = state["waiting"].get("reason", "Waiting")
+                                container_info = f"Backend: {reason}"
+                            elif "running" in state:
+                                container_info = "Backend: ✓ Running" if ready else "Backend: Starting"
+                            elif "terminated" in state:
+                                reason = state["terminated"].get("reason", "Terminated")
+                                container_info = f"Backend: ✗ {reason}"
+
+                        # Print status changes
+                        status_str = f"{phase} | {init_info} | {container_info}"
+                        if last_status != status_str:
+                            console.print(f"[cyan]→ Status:[/cyan] {status_str} [dim](elapsed: {elapsed}s)[/dim]")
+                            last_status = status_str
+
+                        # Check if deployment is ready
+                        if phase == "Running" and container_statuses:
+                            if all(c.get("ready", False) for c in container_statuses):
+                                console.print("\n[green]✓ Deployment ready![/green]")
+                                return True
+
+                except json.JSONDecodeError:
+                    pass
+
+                    # Stream logs from init container if pod exists and init not complete
+                    if pod_name and not init_container_complete:
+                        try:
+                            log_result = subprocess.run(
+                                [
+                                    "kubectl", "logs",
+                                    pod_name,
+                                    "-n", namespace,
+                                    "-c", "install-dynamic-plugins",
+                                    "--tail=50",
+                                    "--timestamps",
+                                ],
+                                capture_output=True,
+                                text=True,
+                                timeout=5,
+                            )
+
+                            if log_result.returncode == 0 and log_result.stdout:
+                                lines = log_result.stdout.strip().split("\n")
+
+                                # Show only new lines (not in buffer)
+                                for line in lines:
+                                    if line.strip() and line not in log_buffer:
+                                        # Extract timestamp and message
+                                        parts = line.split(" ", 1)
+                                        if len(parts) == 2:
+                                            timestamp, msg = parts
+                                            # Highlight important messages
+                                            if "error" in msg.lower() or "failed" in msg.lower():
+                                                console.print(f"  [red]✗[/red] {msg}")
+                                            elif "pulling" in msg.lower() or "downloading" in msg.lower():
+                                                console.print(f"  [yellow]↓[/yellow] {msg}")
+                                            elif "installing" in msg.lower() or "extracting" in msg.lower():
+                                                console.print(f"  [blue]⚙[/blue] {msg}")
+                                            elif "complete" in msg.lower() or "success" in msg.lower():
+                                                console.print(f"  [green]✓[/green] {msg}")
+                                            else:
+                                                console.print(f"  [dim]{msg}[/dim]")
+                                        log_buffer.append(line)
+
+                                # Limit buffer size
+                                if len(log_buffer) > 100:
+                                    log_buffer = log_buffer[-50:]
+
+                                # Check if init container finished
+                                full_log = "\n".join(lines)
+                                if "Successfully installed" in full_log or "Installed" in full_log:
+                                    init_container_complete = True
+                                    console.print("\n[green]✓ Plugin installation complete[/green]")
+
+                        except subprocess.TimeoutExpired:
+                            pass
+                        except Exception as e:
+                            # Init container might not be ready yet
+                            if "waiting to start" not in str(e).lower():
+                                pass  # Silently ignore other errors during early pod startup
+
+                    # If init complete, check backend logs
+                    if init_container_complete and not backend_started and pod_name:
+                        try:
+                            backend_log = subprocess.run(
+                                [
+                                    "kubectl", "logs",
+                                    pod_name,
+                                    "-n", namespace,
+                                    "-c", "backstage-backend",
+                                    "--tail=10",
+                                ],
+                                capture_output=True,
+                                text=True,
+                                timeout=5,
+                            )
+
+                            if backend_log.returncode == 0 and backend_log.stdout:
+                                if "Listening on" in backend_log.stdout or "started" in backend_log.stdout.lower():
+                                    backend_started = True
+                                    console.print("[green]✓ Backend started[/green]")
+                                else:
+                                    # Show last backend log line
+                                    lines = backend_log.stdout.strip().split("\n")
+                                    if lines and lines[-1].strip():
+                                        console.print(f"  [dim]Backend: {lines[-1].strip()}[/dim]")
+
+                        except Exception:
+                            pass
+
+            else:
+                # No pod found yet
+                if elapsed > 30 and elapsed % 30 == 0:  # Print every 30s if no pod
+                    console.print(f"[yellow]⚠[/yellow] Waiting for pod to be created... ({elapsed}s elapsed)")
+
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]⚠ Pod status check timed out, retrying...[/yellow]")
+        except Exception as e:
+            # Pod might not exist yet, only show after some time
+            if elapsed > 60:
+                pass
+
+        time.sleep(8)  # Poll every 8 seconds (balance between responsiveness and log spam)
+
+    # Timeout reached
+    console.print(f"\n[red]✗ Deployment did not become ready within {timeout}[/red]")
+    return False
 
 
 class HelmDeployer(DeploymentBackend):
@@ -106,6 +341,11 @@ class HelmDeployer(DeploymentBackend):
                 console.print("[red]No registry config provided with --skip-build[/red]")
                 sys.exit(1)
 
+            # Create registry auth secret for pulling OCI images
+            # (normally done during build, but needed here too when skipping build)
+            from ...commands.build import _create_auth_secret
+            _create_auth_secret(namespace, release_name)
+
         if config.aap is None:
             console.print(
                 "[red]AAP configuration is required. "
@@ -173,26 +413,17 @@ class HelmDeployer(DeploymentBackend):
 
         # Now wait for deployment to be ready (RHDH+OCI plugin init is often 15–30+ minutes)
         if config.wait_for_rollout:
-            console.print(
-                f"\n[blue]Waiting for deployment to be ready (timeout: {config.rollout_timeout})...[/blue]"
+            success = _wait_for_deployment_with_logs(
+                namespace=namespace,
+                release_name=release_name,
+                timeout=config.rollout_timeout,
+                k8s=self.k8s,
             )
-            try:
-                subprocess.run(
-                    [
-                        "kubectl",
-                        "rollout",
-                        "status",
-                        f"deployment/{release_name}",
-                        "-n",
-                        namespace,
-                        f"--timeout={config.rollout_timeout}",
-                    ],
-                    check=True,
-                )
-            except subprocess.CalledProcessError:
+            if not success:
                 _print_rollout_failure_hints(namespace, release_name)
-                raise
-            console.print("[green]✓[/green] Deployment ready")
+                console.print("\n[yellow]Deployment may still be in progress.[/yellow]")
+                console.print("[dim]Check status with: oc get pods -n {namespace}[/dim]\n")
+                raise RuntimeError("Deployment rollout timed out")
         else:
             console.print(
                 "\n[yellow]Skipped waiting for rollout (--skip-rollout-wait). "

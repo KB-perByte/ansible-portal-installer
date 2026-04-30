@@ -1,12 +1,16 @@
 """Main CLI entry point for ansible-portal-installer."""
 
 import click
+from dotenv import load_dotenv
 from rich.console import Console
 
 from . import __version__
 from .commands import build, collect_logs, deploy, teardown, upgrade, validate
 
 console = Console()
+
+# Load .env file into environment variables for Click
+load_dotenv()
 
 
 @click.group()
