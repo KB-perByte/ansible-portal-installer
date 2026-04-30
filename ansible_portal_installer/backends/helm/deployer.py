@@ -116,8 +116,14 @@ class HelmDeployer(DeploymentBackend):
         # Create secrets
         self._create_secrets(namespace, release_name, config.aap, config.scm)
 
-        # Create registries ConfigMap for internal registry TLS skip
-        self._create_registries_configmap(namespace, release_name)
+        # Create registries ConfigMap for internal registry TLS skip (if enabled)
+        if config.insecure_registry:
+            console.print(
+                "[dim]Configuring insecure registry support for OpenShift internal registry[/dim]"
+            )
+            self._create_registries_configmap(namespace, release_name)
+        else:
+            console.print("[dim]Skipping insecure registry configuration (--no-insecure-registry)[/dim]")
 
         # Generate admin password
         admin_password = config.admin_password or self._generate_password()
@@ -158,11 +164,12 @@ class HelmDeployer(DeploymentBackend):
             namespace=namespace,
             values=values,
             timeout=timeout,
-            wait=False,  # Don't wait yet, we need to patch first
+            wait=False,  # Don't wait yet, we may need to patch first
         )
 
-        # Patch deployment to add registries config volume for insecure registry
-        self._patch_deployment_for_insecure_registry(namespace, release_name)
+        # Patch deployment to add registries config volume for insecure registry (if enabled)
+        if config.insecure_registry:
+            self._patch_deployment_for_insecure_registry(namespace, release_name)
 
         # Now wait for deployment to be ready (RHDH+OCI plugin init is often 15–30+ minutes)
         if config.wait_for_rollout:
@@ -381,11 +388,12 @@ class HelmDeployer(DeploymentBackend):
         console.print("\n[blue]Creating secrets...[/blue]")
 
         # AAP secrets
+        # Note: Key names must match what the Helm chart expects in values.yaml extraEnvVars
         aap_secret_data = {
-            "ANSIBLE_RHAAP_BASE_URL": aap_config.base_url,
-            "ANSIBLE_RHAAP_TOKEN": aap_config.token,
-            "ANSIBLE_RHAAP_CLIENT_ID": aap_config.oauth_client_id,
-            "ANSIBLE_RHAAP_CLIENT_SECRET": aap_config.oauth_client_secret,
+            "aap-host-url": aap_config.base_url,
+            "aap-token": aap_config.token,
+            "oauth-client-id": aap_config.oauth_client_id,
+            "oauth-client-secret": aap_config.oauth_client_secret,
         }
 
         self.k8s.create_or_update_secret(
@@ -398,13 +406,17 @@ class HelmDeployer(DeploymentBackend):
             scm_secret_data = {}
 
             if scm_config.github_token:
-                scm_secret_data["GITHUB_TOKEN"] = scm_config.github_token
+                scm_secret_data["github-token"] = scm_config.github_token
             if scm_config.github_client_id:
-                scm_secret_data["AUTH_GITHUB_CLIENT_ID"] = scm_config.github_client_id
+                scm_secret_data["github-client-id"] = scm_config.github_client_id
             if scm_config.github_client_secret:
-                scm_secret_data["AUTH_GITHUB_CLIENT_SECRET"] = scm_config.github_client_secret
+                scm_secret_data["github-client-secret"] = scm_config.github_client_secret
             if scm_config.gitlab_token:
-                scm_secret_data["GITLAB_TOKEN"] = scm_config.gitlab_token
+                scm_secret_data["gitlab-token"] = scm_config.gitlab_token
+            if scm_config.gitlab_client_id:
+                scm_secret_data["gitlab-client-id"] = scm_config.gitlab_client_id
+            if scm_config.gitlab_client_secret:
+                scm_secret_data["gitlab-client-secret"] = scm_config.gitlab_client_secret
 
             self.k8s.create_or_update_secret(
                 namespace=namespace, name="secrets-scm", data=scm_secret_data

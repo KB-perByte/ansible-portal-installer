@@ -9,6 +9,7 @@ from rich.table import Table
 
 from ..backends import BackendFactory, BackendType
 from ..config import AAPConfig, DeploymentConfig, RegistryConfig, SCMConfig
+from ..oauth_setup import prompt_oauth_setup, validate_oauth_credentials
 
 console = Console()
 
@@ -131,6 +132,22 @@ console = Console()
     default=False,
     help="Enable/disable SSL verification for AAP",
 )
+@click.option(
+    "--insecure-registry/--no-insecure-registry",
+    default=True,
+    help="Configure insecure registry support for OpenShift internal registry (default: enabled for dev)",
+    envvar="INSECURE_REGISTRY",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show generated Helm values without deploying",
+)
+@click.option(
+    "--values-output",
+    type=click.Path(path_type=Path),
+    help="Export generated Helm values to file (implies --dry-run)",
+)
 def deploy(
     backend: str,
     namespace: str,
@@ -152,6 +169,9 @@ def deploy(
     skip_rollout_wait: bool,
     rollout_timeout: str,
     check_ssl: bool,
+    insecure_registry: bool,
+    dry_run: bool,
+    values_output: Path | None,
 ) -> None:
     """Deploy Ansible Portal using selected backend.
 
@@ -168,6 +188,23 @@ def deploy(
     - operator: Deploy using OpenShift Operators (future)
     - rhel: Install as RHEL packages (future)
     """
+    # Validate OAuth credentials
+    if not validate_oauth_credentials(aap_host, aap_token, oauth_client_id, oauth_client_secret):
+        # Try to get cluster router base for portal route estimation
+        from ..k8s import OpenShiftClient
+        try:
+            oc = OpenShiftClient()
+            cluster_router_base = oc.get_cluster_router_base()
+        except Exception:
+            cluster_router_base = None
+
+        # Prompt for OAuth setup guidance
+        if not prompt_oauth_setup(namespace, cluster_router_base, release_name):
+            raise click.Abort()
+
+        console.print("[red]Please provide all required AAP credentials and try again.[/red]")
+        raise click.Abort()
+
     # Create configuration objects
     aap_config = AAPConfig(
         host_url=aap_host,
@@ -222,7 +259,13 @@ def deploy(
         wait_for_rollout=not skip_rollout_wait,
         rollout_timeout=rollout_timeout,
         check_ssl=check_ssl,
+        insecure_registry=insecure_registry,
     )
+
+    # Dry-run mode: show generated values without deploying
+    if dry_run or values_output:
+        _show_helm_values_preview(deployment_config, values_output)
+        return
 
     # Create backend and deploy
     try:
@@ -243,13 +286,77 @@ def deploy(
         raise
 
 
+def _show_helm_values_preview(config: DeploymentConfig, output_path: Path | None = None) -> None:
+    """Show or export generated Helm values without deploying.
+
+    Args:
+        config: Deployment configuration
+        output_path: Optional path to export values YAML file
+    """
+    from ..backends.helm.client import generate_portal_values
+    from ..k8s import OpenShiftClient
+
+    console.print("[bold blue]Helm Values Preview (Dry-Run Mode)[/bold blue]\n")
+
+    # Get cluster router base
+    try:
+        oc = OpenShiftClient()
+        cluster_router_base = oc.get_cluster_router_base()
+    except Exception:
+        cluster_router_base = config.cluster_router_base or "apps.example.com"
+
+    # Generate admin password
+    import secrets
+    admin_password = config.admin_password or secrets.token_urlsafe(16)
+
+    # Hash password
+    import bcrypt
+    admin_password_hash = bcrypt.hashpw(admin_password.encode(), bcrypt.gensalt(rounds=10)).decode()
+
+    # Generate backend secret
+    backend_secret = secrets.token_urlsafe(32)
+
+    # Determine registry URL
+    registry_url = "quay.io/example/ansible-portal-plugins"  # Placeholder for dry-run
+    if config.registry:
+        registry_url = config.registry.full_image_url
+
+    # Generate values
+    values = generate_portal_values(
+        registry_url=registry_url,
+        image_tag=config.image_tag,
+        cluster_router_base=cluster_router_base,
+        release_name=config.release_name,
+        admin_password_hash=admin_password_hash,
+        backend_secret=backend_secret,
+        check_ssl=config.check_ssl,
+    )
+
+    # Export to file if requested
+    if output_path:
+        import yaml
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
+            yaml.dump(values, f, default_flow_style=False, sort_keys=False)
+        console.print(f"[green]✓[/green] Helm values exported to: {output_path}\n")
+
+    # Print to console
+    import yaml
+    console.print(Panel("[bold]Generated Helm Values:[/bold]", border_style="cyan"))
+    console.print(yaml.dump(values, default_flow_style=False, sort_keys=False))
+
+    console.print("\n[bold yellow]Preview Mode - No Deployment Performed[/bold yellow]")
+    console.print("[dim]Remove --dry-run or --values-output to proceed with deployment[/dim]\n")
+
+
 def _print_deployment_summary(result: dict) -> None:
     """Print deployment summary table."""
     table = Table(title="Deployment Summary", show_header=False, box=None, padding=(0, 2))
     table.add_column("Key", style="cyan", no_wrap=True)
     table.add_column("Value", style="white")
 
-    table.add_row("Portal URL", result.get("url", "N/A"))
+    portal_url = result.get("url", "N/A")
+    table.add_row("Portal URL", portal_url)
     table.add_row("Admin User", result.get("username", "admin"))
     table.add_row("Admin Password", f"[yellow]{result.get('password', 'N/A')}[/yellow]")
     table.add_row("Namespace", result.get("namespace", "N/A"))
@@ -261,3 +368,50 @@ def _print_deployment_summary(result: dict) -> None:
     )
     console.print()
     console.print("[bold yellow]⚠️  Save the admin password securely![/bold yellow]\n")
+
+    # Print OAuth redirect URI update instructions
+    console.print("[bold red]🔴 CRITICAL: Update OAuth Redirect URIs[/bold red]")
+    console.print("[yellow]Authentication will fail until you complete this step![/yellow]\n")
+
+    console.print("[bold]Update your AAP OAuth Application:[/bold]")
+    console.print("  1. AAP Controller → Administration → OAuth Applications")
+    console.print("  2. Edit your OAuth app and update redirect URIs to:")
+    console.print(f"     • {portal_url}/api/auth/rhaap/handler/frame")
+    console.print(f"     • {portal_url}/api/auth/github/handler/frame\n")
+
+    console.print("[bold]Update your GitHub OAuth Application:[/bold]")
+    console.print("  1. GitHub → Settings → Developer settings → OAuth Apps")
+    console.print("  2. Edit your OAuth app and update Authorization callback URL to:")
+    console.print(f"     • {portal_url}/api/auth/github/handler/frame\n")
+
+    console.print("[dim]If redirect URIs don't match exactly, you'll see 'redirect_uri_mismatch' errors.[/dim]\n")
+
+    # Print verification checklist
+    _print_verification_checklist(portal_url)
+
+
+def _print_verification_checklist(portal_url: str) -> None:
+    """Print post-deployment verification checklist.
+
+    Args:
+        portal_url: Portal URL for testing
+    """
+    console.print("[bold cyan]📋 Verification Checklist[/bold cyan]\n")
+
+    console.print("[bold]After updating OAuth redirect URIs, verify:[/bold]")
+    console.print("  [ ] Portal loads in browser:")
+    console.print(f"      {portal_url}")
+    console.print("  [ ] AAP sign-in works (OAuth redirect to AAP login)")
+    console.print("  [ ] After AAP login, you're redirected back to portal (no redirect_uri_mismatch)")
+    console.print("  [ ] Templates visible at /create (ansible-rhdh-templates)")
+    console.print("  [ ] Custom plugins loaded:")
+    console.print("      Check init container logs: oc logs <pod> -c install-dynamic-plugins")
+    console.print("  [ ] Content discovery working (if enabled):")
+    console.print("      Check backend logs: oc logs <pod> -c backstage-backend | grep ansible-collections")
+    console.print()
+    console.print("[bold]Troubleshooting commands:[/bold]")
+    console.print(f"  oc get pods        # Check pod status (should be 2/2 Running)")
+    console.print(f"  oc get route       # Verify portal route")
+    console.print(f"  oc logs <pod> -c install-dynamic-plugins --tail=100  # Plugin loading")
+    console.print(f"  oc logs <pod> -c backstage-backend --tail=100        # Backend logs")
+    console.print()

@@ -161,17 +161,37 @@ def _check_prerequisites() -> None:
         raise click.Abort()
 
 
-def _build_plugins(plugins_path: Path) -> None:
-    """Build all plugins using rhdh-cli plugin package."""
+def _build_plugins(plugins_path: Path, build_type: str = "portal") -> None:
+    """Build all plugins using build.sh script.
+
+    This matches the documented workflow in helm-chart-developer-guide.md.
+    The build.sh script handles yarn install, tsc, build, and plugin export.
+
+    Args:
+        plugins_path: Path to ansible-rhdh-plugins repository
+        build_type: Build type - "portal" (default), "rhdh", or "all"
+    """
     # Resolve to absolute path
     plugins_path = plugins_path.resolve()
     console.print(f"[blue]Building plugins from source: {plugins_path}[/blue]")
 
-    # Add node_modules/.bin to PATH so rhdh-cli can be found
+    # Verify build.sh exists
+    build_script = plugins_path / "build.sh"
+    if not build_script.exists():
+        console.print(f"[red]Error: build.sh not found at {build_script}[/red]")
+        console.print("[yellow]Make sure plugins_path points to ansible-rhdh-plugins repo[/yellow]")
+        raise click.Abort()
+
+    # Verify upstream repo is linked
+    upstream_link = plugins_path / "ansible-backstage-plugins"
+    if not upstream_link.exists():
+        console.print(f"[red]Error: ansible-backstage-plugins not found at {upstream_link}[/red]")
+        console.print("[yellow]Create symlink: ln -sfn ../ansible-backstage-plugins ansible-backstage-plugins[/yellow]")
+        raise click.Abort()
+
     import os
     env = os.environ.copy()
-    node_bin = str(plugins_path / "node_modules" / ".bin")
-    env["PATH"] = f"{node_bin}:{env.get('PATH', '')}"
+    env["BUILD_TYPE"] = build_type
 
     try:
         with Progress(
@@ -179,24 +199,10 @@ def _build_plugins(plugins_path: Path) -> None:
             TextColumn("[progress.description]{task.description}"),
             console=console,
         ) as progress:
-            # Build all plugins with yarn build
-            progress.add_task("Running yarn build...", total=None)
-            subprocess.run(
-                ["yarn", "build"],
-                cwd=plugins_path,
-                env=env,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-
-            # Export plugins with rhdh-cli
-            progress.add_task("Exporting plugins with rhdh-cli...", total=None)
-            export_dir = plugins_path.parent / "dynamic-plugins"
-            export_dir.mkdir(exist_ok=True)
+            progress.add_task(f"Running build.sh (BUILD_TYPE={build_type})...", total=None)
 
             subprocess.run(
-                [str(plugins_path / "node_modules" / ".bin" / "rhdh-cli"), "plugin", "package", "--export-to", str(export_dir)],
+                ["./build.sh"],
                 cwd=plugins_path,
                 env=env,
                 check=True,
@@ -208,19 +214,35 @@ def _build_plugins(plugins_path: Path) -> None:
 
     except subprocess.CalledProcessError as e:
         console.print("[red]Failed to build plugins[/red]")
-        console.print(f"[red]{e.stderr}[/red]")
+        console.print(f"[red]STDOUT: {e.stdout}[/red]")
+        console.print(f"[red]STDERR: {e.stderr}[/red]")
         raise click.Abort()
 
 
 
 def _collect_plugin_tarballs(plugins_path: Path) -> list[Path]:
-    """Collect plugin tarballs from dynamic-plugins export directory."""
+    """Collect plugin tarballs from dynamic-plugins export directory.
+
+    Per helm-chart-developer-guide.md, build.sh exports to:
+      ansible-rhdh-plugins/dynamic-plugins/
+
+    Args:
+        plugins_path: Path to ansible-rhdh-plugins repository
+
+    Returns:
+        List of tarball paths
+    """
     # Resolve to absolute path
     plugins_path = plugins_path.resolve()
     console.print("[blue]Creating plugin tarballs...[/blue]")
 
-    # Plugins are exported as directories to dynamic-plugins (one level up from plugins_path)
-    export_dir = plugins_path.parent / "dynamic-plugins"
+    # build.sh exports plugins to dynamic-plugins/ within ansible-rhdh-plugins
+    export_dir = plugins_path / "dynamic-plugins"
+
+    if not export_dir.exists():
+        console.print(f"[red]Error: Export directory not found: {export_dir}[/red]")
+        console.print("[yellow]Run build without --skip-plugin-build first[/yellow]")
+        raise click.Abort()
 
     # Create tarballs from plugin directories
     tarballs = []
@@ -287,6 +309,8 @@ def _create_auth_secret(namespace: str, release_name: str) -> None:
             json.dump(auth_json, auth_file)
 
         # Create secret using oc
+        # Note: Must be kubernetes.io/dockerconfigjson type with .dockerconfigjson key
+        # to work with standard Kubernetes imagePullSecrets
         result = subprocess.run(
             [
                 "oc",
@@ -294,7 +318,8 @@ def _create_auth_secret(namespace: str, release_name: str) -> None:
                 "secret",
                 "generic",
                 secret_name,
-                f"--from-file=auth.json={auth_path}",
+                f"--from-file=.dockerconfigjson={auth_path}",
+                "--type=kubernetes.io/dockerconfigjson",
                 "-n",
                 namespace,
                 "--dry-run=client",

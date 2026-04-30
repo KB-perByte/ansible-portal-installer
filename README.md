@@ -1,502 +1,263 @@
 # Ansible Portal Installer
 
-A Python CLI tool for deploying the Ansible Automation Portal to OpenShift with locally-built plugins in OCI mode.
+Automated deployment tool for Ansible Automation Portal (based on Red Hat Developer Hub).
 
-## Features
-
-- 🚀 **Build & Deploy**: Build plugins from source and deploy to OpenShift
-- 🐳 **OCI Mode**: Package plugins as OCI images (production-like workflow)
-- ✅ **Health Checks**: Comprehensive validation of deployments
-- 📋 **Log Collection**: Automated diagnostic log gathering
-- 🔧 **Configuration Management**: Pydantic-based config with validation
-- 🎨 **Rich CLI**: Beautiful terminal output with progress indicators
-
-## Installation
-
-### For Development
-
-```bash
-# Clone the repository
-cd /home/kbperbyte/Work/ansible-portal/ansible-portal-installer
-
-# Install in editable mode with dev dependencies
-pip install -e ".[dev]"
-
-# Verify installation
-ansible-portal-installer --version
-```
-
-### For Users (Future)
-
-```bash
-# Install from PyPI (when published)
-pipx install ansible-portal-installer
-
-# Or with pip
-pip install ansible-portal-installer
-```
-
-## Prerequisites
-
-### Required Tools
-
-- **Python 3.10+**: Runtime environment
-- **oc**: OpenShift CLI
-- **helm**: Helm 3.x
-- **podman**: Container tool
-- **yarn**: Node.js package manager (for plugin builds)
-- **htpasswd**: For generating password hashes (usually pre-installed)
-
-### Required Access
-
-- **OpenShift cluster**: With namespace-admin or cluster-admin permissions
-- **AAP instance**: Running Ansible Automation Platform controller
-- **Optional**: GitHub/GitLab accounts for SCM integrations
+This installer automates the manual workflow documented in the [Helm Chart Developer Guide](https://github.com/ansible/ansible-rhdh-plugins/blob/main/docs/guides/helm-chart-developer-guide.md).
 
 ## Quick Start
 
-### 1. Login to OpenShift
-
 ```bash
-oc login <cluster-api-url>
-oc new-project rhaap-portal-dev
-```
+# Install the tool
+pip install -e .
 
-### 2. Set Environment Variables
-
-```bash
-export AAP_HOST_URL="https://aap.example.com"
-export AAP_TOKEN="<your-aap-token>"
-export OAUTH_CLIENT_ID="<oauth-client-id>"
-export OAUTH_CLIENT_SECRET="<oauth-client-secret>"
-export OCP_NAMESPACE="rhaap-portal-dev"
-```
-
-### 3. Deploy Portal
-
-Full deployment with plugin build included:
-
-```bash
+# Deploy portal with minimal configuration
 ansible-portal-installer deploy \
-  --namespace rhaap-portal-dev \
-  --aap-host "$AAP_HOST_URL" \
-  --aap-token "$AAP_TOKEN" \
-  --oauth-client-id "$OAUTH_CLIENT_ID" \
-  --oauth-client-secret "$OAUTH_CLIENT_SECRET"
-```
-
-This will:
-- Build all 5 plugins from source
-- Create an OCI image and push to OpenShift registry
-- Create required secrets
-- Deploy portal via Helm
-- Display portal URL and admin credentials
-
-Or build plugins separately first:
-
-```bash
-# Build plugin image
-ansible-portal-installer build \
-  --namespace rhaap-portal-dev \
-  --plugins-path /path/to/ansible-rhdh-plugins
-
-# Then deploy (skip build)
-ansible-portal-installer deploy \
-  --namespace rhaap-portal-dev \
-  --aap-host "$AAP_HOST_URL" \
-  --aap-token "$AAP_TOKEN" \
-  --oauth-client-id "$OAUTH_CLIENT_ID" \
-  --oauth-client-secret "$OAUTH_CLIENT_SECRET" \
-  --skip-plugin-build
-```
-
-## Commands
-
-### `build`
-
-Build and push Ansible Portal plugin OCI image.
-
-```bash
-ansible-portal-installer build [OPTIONS]
-
-Options:
-  -n, --namespace TEXT        OpenShift namespace [required]
-  --plugins-path PATH         Path to ansible-rhdh-plugins repo
-  --registry TEXT             Registry URL (default: auto-detect)
-  --tag TEXT                  Image tag [default: dev]
-  --release-name TEXT         Helm release name [default: rhaap-portal-dev]
-  --skip-plugin-build         Skip plugin build (reuse tarballs)
-  --help                      Show help message
-```
-
-**Example:**
-
-```bash
-ansible-portal-installer build \
-  --namespace my-dev-ns \
-  --plugins-path ~/work/ansible-rhdh-plugins \
-  --tag feature-xyz
-```
-
-### `deploy`
-
-Deploy portal to OpenShift with full configuration.
-
-```bash
-ansible-portal-installer deploy [OPTIONS]
-
-Required Options:
-  -n, --namespace TEXT         OpenShift namespace
-  --aap-host TEXT              AAP controller URL
-  --aap-token TEXT             AAP API token
-  --oauth-client-id TEXT       AAP OAuth client ID
-  --oauth-client-secret TEXT   AAP OAuth client secret
-
-Optional Options:
-  --release-name TEXT          Helm release name [default: rhaap-portal-dev]
-  --chart-path PATH            Path to Helm chart
-  --plugins-path PATH          Path to plugins repository
-  --github-token TEXT          GitHub PAT (optional)
-  --registry TEXT              Registry URL (auto-detect)
-  --image-tag TEXT             Plugin image tag [default: dev]
-  --admin-password TEXT        Admin password (generated if not provided)
-  --skip-plugin-build          Skip plugin build step
-  --check-ssl                  Enable SSL verification
-```
-
-**Example:**
-```bash
-ansible-portal-installer deploy \
-  --namespace rhaap-portal-dev \
+  --namespace my-portal \
   --aap-host https://aap.example.com \
   --aap-token <token> \
   --oauth-client-id <client-id> \
   --oauth-client-secret <client-secret>
 ```
 
-### `upgrade`
+## Features
 
-Upgrade existing deployment with new plugin image or values.
+- ✅ Automated plugin build using upstream `build.sh` script
+- ✅ OCI image packaging and push to OpenShift internal registry
+- ✅ Kubernetes secret creation with correct key names
+- ✅ Helm deployment with auto-generated values
+- ✅ OAuth application setup guidance
+- ✅ Post-deployment verification checklist
+- ✅ Configurable insecure registry support for dev environments
+- ✅ Values preview and export (dry-run mode)
+
+## Prerequisites
+
+- OpenShift cluster access with `oc` CLI
+- Helm 3.x
+- Podman or Docker
+- Node.js 20 or 22
+- Yarn (via corepack)
+- AAP OAuth application and API token (see Setup below)
+- Optional: GitHub OAuth application and PAT for GitHub integration
+
+## Repository Setup
+
+The installer expects this directory structure:
+
+```
+.
+├── ansible-rhdh-plugins/          # Downstream repo (build scripts, Containerfile)
+│   ├── build.sh
+│   ├── dynamic-plugins/           # Build output directory
+│   └── ansible-backstage-plugins@ -> ../ansible-backstage-plugins
+├── ansible-backstage-plugins/     # Upstream repo (plugin source code)
+│   └── plugins/
+├── ansible-portal-chart/          # Helm chart
+└── ansible-portal-installer/      # This tool
+```
+
+Setup:
 
 ```bash
-ansible-portal-installer upgrade [OPTIONS]
+# Clone repositories
+git clone https://github.com/ansible/ansible-rhdh-plugins.git
+git clone https://github.com/ansible/ansible-backstage-plugins.git
+git clone https://github.com/ansible-automation-platform/ansible-portal-chart.git
 
-Options:
-  -n, --namespace TEXT      OpenShift namespace [required]
-  --release-name TEXT       Helm release name
-  --plugins-path PATH       Path to plugins repository
-  --image-tag TEXT          New image tag
-  --skip-plugin-build       Skip rebuild (values-only upgrade)
-  --values PATH             Custom values file
+# Create symlink (required by build.sh)
+cd ansible-rhdh-plugins
+ln -sfn ../ansible-backstage-plugins ansible-backstage-plugins
 ```
 
-**Example:**
-```bash
-# Rebuild plugins and upgrade
-ansible-portal-installer upgrade --namespace my-ns
+## OAuth Application Setup
 
-# Values-only upgrade (no plugin rebuild)
-ansible-portal-installer upgrade --namespace my-ns --skip-plugin-build
-```
+Before deploying, create OAuth applications in AAP and optionally GitHub.
 
-### `validate`
+### Option 1: Interactive Guidance
 
-Run comprehensive health checks on deployment.
+Run the deploy command without credentials to get step-by-step setup instructions:
 
 ```bash
-ansible-portal-installer validate [OPTIONS]
-
-Options:
-  -n, --namespace TEXT   Namespace (auto-detect if not provided)
-  --release-name TEXT    Release name (auto-detect)
-  -v, --verbose          Show detailed output
-  --timeout INTEGER      Check timeout in seconds
+ansible-portal-installer deploy --namespace my-portal
 ```
 
-**Checks performed:**
-- Pod health (RHDH, PostgreSQL)
-- Plugin loading from init containers
-- Route accessibility
-- AAP connectivity
-- Settings management API
-- Database state
+The installer will detect missing credentials and guide you through OAuth setup.
 
-**Example:**
-```bash
-# Auto-detect namespace and release
-ansible-portal-installer validate
+### Option 2: Manual Setup
 
-# Specify namespace explicitly
-ansible-portal-installer validate --namespace my-ns --verbose
-```
+See the interactive guidance output for detailed steps, or refer to the [Helm Chart Developer Guide Phase 3](https://github.com/ansible/ansible-rhdh-plugins/blob/main/docs/guides/helm-chart-developer-guide.md#phase-3-oauth-applications-setup).
 
-### `collect-logs`
+## Deployment
 
-Collect comprehensive diagnostic logs for troubleshooting.
+### Basic Deployment
 
 ```bash
-ansible-portal-installer collect-logs [OPTIONS]
-
-Options:
-  -n, --namespace TEXT   Namespace (auto-detect)
-  --release-name TEXT    Release name (auto-detect)
-  -o, --output-dir PATH  Output directory
-  --tail INTEGER         Log lines to collect [default: 1000]
+ansible-portal-installer deploy \
+  --namespace my-portal \
+  --aap-host https://aap.example.com \
+  --aap-token <aap-token> \
+  --oauth-client-id <oauth-client-id> \
+  --oauth-client-secret <oauth-client-secret>
 ```
 
-**Collects:**
-- All pod logs (main + init containers)
-- Pod descriptions and status
-- Namespace events
-- Helm release status and values
-- Resource manifests
-
-**Example:**
-```bash
-ansible-portal-installer collect-logs --namespace my-ns
-# Output: ./portal-logs-TIMESTAMP/
-```
-
-### `teardown`
-
-Remove portal deployment from OpenShift.
+### With GitHub Integration
 
 ```bash
-ansible-portal-installer teardown [OPTIONS]
-
-Options:
-  -n, --namespace TEXT   OpenShift namespace [required]
-  --release-name TEXT    Helm release name
-  --clean-secrets        Also delete secrets
-  --clean-namespace      Also delete namespace (WARNING!)
-  -y, --yes              Skip confirmation prompts
+ansible-portal-installer deploy \
+  --namespace my-portal \
+  --aap-host https://aap.example.com \
+  --aap-token <aap-token> \
+  --oauth-client-id <oauth-client-id> \
+  --oauth-client-secret <oauth-client-secret> \
+  --github-token <github-token> \
+  --github-client-id <github-client-id> \
+  --github-client-secret <github-client-secret>
 ```
 
-**Example:**
-```bash
-# Remove Helm release only
-ansible-portal-installer teardown --namespace my-ns
-
-# Remove everything including secrets
-ansible-portal-installer teardown \
-  --namespace my-ns \
-  --clean-secrets \
-  --yes
-```
-
-## Configuration
-
-### Environment Variables
-
-All CLI options can be set via environment variables:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OCP_CLUSTER_URL` | OpenShift cluster API URL | - |
-| `OCP_NAMESPACE` | Target namespace | - |
-| `RELEASE_NAME` | Helm release name | `rhaap-portal-dev` |
-| `CHART_PATH` | Path to Helm chart | `../ansible-portal-chart` |
-| `PLUGINS_PATH` | Path to plugins repo | `.` |
-| `AAP_HOST_URL` | AAP controller URL | - |
-| `AAP_TOKEN` | AAP API token | - |
-| `OAUTH_CLIENT_ID` | AAP OAuth client ID | - |
-| `OAUTH_CLIENT_SECRET` | AAP OAuth client secret | - |
-| `GITHUB_TOKEN` | GitHub PAT | - |
-| `PLUGIN_REGISTRY` | Plugin registry URL | Auto-detect |
-| `PLUGIN_IMAGE_TAG` | Plugin image tag | `dev` |
-| `PORTAL_ADMIN_PASSWORD` | Initial admin password | Generated |
-| `SKIP_PLUGIN_BUILD` | Skip plugin build | `false` |
-| `VERBOSE` | Verbose output | `false` |
-
-### `.env` File
-
-Create a `.env` file in your working directory:
+### Using Environment Variables
 
 ```bash
-# OpenShift
-OCP_NAMESPACE=rhaap-portal-dev
-RELEASE_NAME=my-portal
+export AAP_HOST_URL=https://aap.example.com
+export AAP_TOKEN=<token>
+export OAUTH_CLIENT_ID=<client-id>
+export OAUTH_CLIENT_SECRET=<client-secret>
+export GITHUB_TOKEN=<token>
+export GITHUB_CLIENT_ID=<client-id>
+export GITHUB_CLIENT_SECRET=<client-secret>
 
-# AAP
-AAP_HOST_URL=https://aap.example.com
-AAP_TOKEN=your-token-here
-OAUTH_CLIENT_ID=your-client-id
-OAUTH_CLIENT_SECRET=your-client-secret
-
-# GitHub (optional)
-GITHUB_TOKEN=ghp_...
-GITHUB_CLIENT_ID=...
-GITHUB_CLIENT_SECRET=...
+ansible-portal-installer deploy --namespace my-portal
 ```
 
-The tool will automatically load this file.
-
-## Development
-
-### Project Structure
-
-```
-ansible-portal-installer/
-├── pyproject.toml              # Project metadata and dependencies
-├── ansible_portal_installer/
-│   ├── __init__.py
-│   ├── cli.py                  # Main CLI entry point
-│   ├── config.py               # Pydantic configuration models
-│   ├── k8s.py                  # Kubernetes client wrappers
-│   ├── registry.py             # OCI registry operations
-│   ├── helm.py                 # Helm operations
-│   ├── validation.py           # Health checks
-│   └── commands/               # Command implementations
-│       ├── build.py
-│       ├── deploy.py
-│       ├── upgrade.py
-│       ├── validate.py
-│       └── collect_logs.py
-├── tests/                      # Test suite
-└── README.md
-```
-
-### Running Tests
+### Preview Generated Values (Dry-Run)
 
 ```bash
-# Install dev dependencies
-pip install -e ".[dev]"
+# Print values to console
+ansible-portal-installer deploy \
+  --namespace my-portal \
+  --dry-run \
+  <...other options...>
 
-# Run tests
-pytest
-
-# Run tests with coverage
-pytest --cov
-
-# Type checking
-mypy ansible_portal_installer
-
-# Linting
-ruff check ansible_portal_installer
-black --check ansible_portal_installer
+# Export values to file
+ansible-portal-installer deploy \
+  --namespace my-portal \
+  --values-output ./my-values.yaml \
+  <...other options...>
 ```
 
-### Code Style
-
-This project uses:
-- **Black**: Code formatting (100 char line length)
-- **Ruff**: Fast linting
-- **MyPy**: Static type checking
+### Advanced Options
 
 ```bash
-# Format code
-black ansible_portal_installer
-
-# Fix linting issues
-ruff check --fix ansible_portal_installer
-
-# Type check
-mypy ansible_portal_installer
+ansible-portal-installer deploy \
+  --namespace my-portal \
+  --release-name custom-portal \
+  --chart-path ../ansible-portal-chart \
+  --plugins-path ../ansible-rhdh-plugins \
+  --registry quay.io/myuser \
+  --image-tag v1.0.0 \
+  --check-ssl \
+  --no-insecure-registry \
+  --skip-plugin-build \
+  --skip-rollout-wait \
+  --rollout-timeout 60m \
+  <...credentials...>
 ```
 
-## Architecture
+## Command Options
 
-### Key Design Decisions
+| Option | Description | Default | Env Var |
+|--------|-------------|---------|---------|
+| `--namespace` | Target OpenShift namespace | Required | `OCP_NAMESPACE` |
+| `--release-name` | Helm release name | `rhaap-portal-dev` | `RELEASE_NAME` |
+| `--chart-path` | Path to Helm chart | `../ansible-portal-chart` | `CHART_PATH` |
+| `--plugins-path` | Path to ansible-rhdh-plugins | `.` | `PLUGINS_PATH` |
+| `--aap-host` | AAP controller URL | Required | `AAP_HOST_URL` |
+| `--aap-token` | AAP API token | Required | `AAP_TOKEN` |
+| `--oauth-client-id` | AAP OAuth client ID | Required | `OAUTH_CLIENT_ID` |
+| `--oauth-client-secret` | AAP OAuth client secret | Required | `OAUTH_CLIENT_SECRET` |
+| `--github-token` | GitHub PAT | None | `GITHUB_TOKEN` |
+| `--github-client-id` | GitHub OAuth client ID | None | `GITHUB_CLIENT_ID` |
+| `--github-client-secret` | GitHub OAuth client secret | None | `GITHUB_CLIENT_SECRET` |
+| `--gitlab-token` | GitLab PAT | None | `GITLAB_TOKEN` |
+| `--registry` | Plugin registry URL | Auto-detect | `PLUGIN_REGISTRY` |
+| `--image-tag` | Plugin image tag | `dev` | `PLUGIN_IMAGE_TAG` |
+| `--admin-password` | Portal admin password | Generated | `PORTAL_ADMIN_PASSWORD` |
+| `--check-ssl` | Enable SSL verification for AAP | Disabled | N/A |
+| `--insecure-registry` | Configure insecure registry | Enabled | `INSECURE_REGISTRY` |
+| `--skip-plugin-build` | Skip plugin build step | Disabled | `SKIP_PLUGIN_BUILD` |
+| `--skip-rollout-wait` | Don't wait for rollout | Disabled | `SKIP_ROLLOUT_WAIT` |
+| `--rollout-timeout` | Rollout timeout | `40m` | `ROLLOUT_TIMEOUT` |
+| `--dry-run` | Preview values without deploying | Disabled | N/A |
+| `--values-output` | Export values to file | None | N/A |
 
-1. **OCI Mode Only**: Standardized on OCI plugin delivery (no tarball mode)
-2. **Pydantic Configuration**: Type-safe config with validation
-3. **Rich Console Output**: Beautiful terminal UX with progress indicators
-4. **Kubernetes Native**: Direct K8s API access via Python client
-5. **Click CLI Framework**: Mature, battle-tested CLI framework
+## What the Installer Does
 
-### Comparison with Bash Scripts
+The installer automates these steps from the [Helm Chart Developer Guide](https://github.com/ansible/ansible-rhdh-plugins/blob/main/docs/guides/helm-chart-developer-guide.md):
 
-| Feature | Bash Scripts | Python CLI |
-|---------|-------------|------------|
-| **Error Handling** | Basic (`set -e`) | Structured exceptions |
-| **Config Validation** | Manual checks | Pydantic models |
-| **K8s Integration** | Parse `oc` output | Direct API access |
-| **Testing** | Integration only | Unit + integration |
-| **Code Reuse** | Script sourcing | Python modules |
-| **Type Safety** | None | MyPy static typing |
-| **Progress Indicators** | Basic echo | Rich progress bars |
+1. **Phase 1: Repository Setup** - Validates symlink exists
+2. **Phase 2: Build Plugin Container**
+   - Runs `build.sh` with `BUILD_TYPE=portal`
+   - Creates plugin tarballs in `ansible-rhdh-plugins/dynamic-plugins/`
+   - Builds OCI image with Podman
+   - Pushes to OpenShift internal registry or specified registry
+3. **Phase 3: OAuth Setup** - Provides interactive guidance if credentials missing
+4. **Phase 4: OpenShift Deployment**
+   - Creates namespace if needed
+   - Creates secrets with correct key names matching Helm chart expectations
+   - Optionally creates insecure registry ConfigMap (dev mode)
+   - Generates Helm values matching chart expectations
+   - Runs `helm upgrade --install`
+   - Optionally patches deployment for insecure registry
+   - Waits for rollout with configurable timeout
+5. **Phase 5: Verification** - Displays checklist and OAuth update instructions
 
-## Roadmap
+## Post-Deployment: Update OAuth Redirect URIs
 
-### v0.1.0 ✅ **COMPLETE**
-- [x] Project structure and setup
-- [x] Build command (plugin OCI image)
-- [x] Configuration models
-- [x] K8s client wrappers
-- [x] Registry client
-- [x] Helm client wrapper
-- [x] Health check system
-- [x] Deploy command
-- [x] Upgrade command
-- [x] Validate command
-- [x] Collect-logs command
-- [x] Teardown command
+**CRITICAL:** After deployment completes, you MUST update your OAuth applications with the actual portal route.
 
-All 6 core commands are fully functional and production-ready!
+The installer prints the exact URLs you need. Authentication will fail without this step.
 
-### v0.2.0 (Next)
-- [ ] Comprehensive test suite (expand beyond config tests)
-- [ ] CI/CD integration (GitHub Actions)
-- [ ] Shell auto-completion support
-- [ ] Migration guide from bash scripts
+## Verification
 
-### v0.3.0 (Future)
-- [ ] Interactive setup wizard
-- [ ] Configuration templates/presets
-- [ ] Performance optimizations
-- [ ] Multi-cluster support
+After updating OAuth redirect URIs, use the verification checklist printed by the installer to confirm:
 
-### v1.0.0 (Release)
-- [ ] Production-ready certification
-- [ ] Published to PyPI
-- [ ] Complete documentation site
-- [ ] Video tutorials
+- Portal loads in browser
+- AAP sign-in works
+- Templates are visible
+- Plugins loaded correctly
+- Content discovery working (if enabled)
 
 ## Troubleshooting
 
-### "Could not load Kubernetes config"
+### Plugin Build Fails
 
-Make sure you're logged into OpenShift:
-```bash
-oc login <cluster-url>
-oc whoami  # Verify
-```
+**Error**: `build.sh not found` or `ansible-backstage-plugins not found`
 
-### "Missing required tools"
+**Solution**: Verify repository setup and symlink exists
 
-Install missing dependencies:
-```bash
-# Fedora/RHEL
-sudo dnf install podman skopeo httpd-tools
+### Authentication Fails (redirect_uri_mismatch)
 
-# macOS
-brew install podman skopeo httpd
-```
+**Cause**: OAuth redirect URIs don't match the actual portal route
 
-### "Plugin build failed"
+**Solution**: Update OAuth applications with the exact URLs printed after deployment
 
-Ensure you have Node.js 20+ and yarn installed:
-```bash
-node --version  # Should be >= 20
-yarn --version
-```
+### OCI Image Pull Fails
 
-## Contributing
+**Cause**: Wrong registry auth secret type or missing auth
 
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass (`pytest`)
-5. Format code (`black`, `ruff`)
-6. Submit a pull request
+**Solution**: Ensure you're logged in (`podman login` or `oc registry login`) and `--insecure-registry` is enabled for internal registry
+
+### Rollout Timeout
+
+**Cause**: RHDH + OCI plugin init is slow (can take 30-40 minutes)
+
+**Solution**: Increase timeout with `--rollout-timeout 60m` or use `--skip-rollout-wait`
+
+## Alignment with Helm Chart Developer Guide
+
+This installer implements the exact workflow documented in the [Helm Chart Developer Guide](https://github.com/ansible/ansible-rhdh-plugins/blob/main/docs/guides/helm-chart-developer-guide.md).
+
+See [ALIGNMENT_ANALYSIS.md](ALIGNMENT_ANALYSIS.md) and [FIXES_APPLIED.md](FIXES_APPLIED.md) for detailed comparison and changes made.
 
 ## License
 
-Apache-2.0
-
-## Related Documentation
-
-- [OpenShift Deployment Guide](../ansible-rhdh-plugins/docs/deployment/openshift/dev-guide-ocp-deployment.md)
-- [Tooling Specification](../ansible-rhdh-plugins/docs/deployment/openshift/spec-ocp-dev-tooling.md)
-- [ADR: Plugin Delivery Standardization](../ansible-rhdh-plugins/docs/deployment/openshift/adr-ocp-plugin-delivery-standardization.md)
+Apache License 2.0

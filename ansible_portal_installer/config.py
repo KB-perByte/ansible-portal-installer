@@ -135,6 +135,10 @@ class DeploymentConfig(BaseModel):
         default="40m",
         description="Timeout for kubectl rollout status (e.g. 25m, 40m, 1h); RHDH+OCI is often slow",
     )
+    insecure_registry: bool = Field(
+        default=True,
+        description="Configure insecure registry support for OpenShift internal registry (dev mode)",
+    )
 
     @field_validator("namespace")
     @classmethod
