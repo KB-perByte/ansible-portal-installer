@@ -5,12 +5,16 @@ import tempfile
 from pathlib import Path
 
 import click
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from ..config import RegistryConfig
 from ..k8s import OpenShiftClient
-from ..registry import AuthSecretManager, RegistryClient
+from ..registry import RegistryClient
+
+# Load .env file into environment variables for Click
+load_dotenv()
 
 console = Console()
 
@@ -36,8 +40,15 @@ PLUGINS = [
     "--plugins-path",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     default=Path.cwd(),
-    help="Path to ansible-rhdh-plugins repository",
+    help="Path to ansible-rhdh-plugins repository (downstream)",
     envvar="PLUGINS_PATH",
+)
+@click.option(
+    "--upstream-plugins-path",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    required=True,
+    help="Path to ansible-backstage-plugins repository (upstream)",
+    envvar="UPSTREAM_PLUGINS_PATH",
 )
 @click.option(
     "--registry",
@@ -62,13 +73,21 @@ PLUGINS = [
     help="Skip plugin build step (reuse existing tarballs)",
     envvar="SKIP_PLUGIN_BUILD",
 )
+@click.option(
+    "--registry-auth-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to registry auth.json file (optional, only needed for authenticated registries)",
+    envvar="REGISTRY_AUTH_FILE",
+)
 def build(
     namespace: str,
     plugins_path: Path,
+    upstream_plugins_path: Path,
     registry: str | None,
     tag: str,
     release_name: str,
     skip_plugin_build: bool,
+    registry_auth_file: Path | None,
 ) -> None:
     """Build and push Ansible Portal plugin OCI image.
 
@@ -84,31 +103,50 @@ def build(
     # Validate prerequisites
     _check_prerequisites()
 
-    # Determine registry URL
+    # Determine registry URL and parse components
     if not registry:
         # Use OpenShift internal registry
         console.print("[blue]Auto-detecting OpenShift internal registry...[/blue]")
         registry_route = OpenShiftClient.get_registry_route()
         if registry_route:
-            registry_url = f"{registry_route}/{namespace}"
-            console.print(f"[green]✓[/green] Using external route: {registry_url}")
+            registry_url = registry_route
+            registry_namespace = namespace
+            image_name = "ansible-portal-plugins"
+            console.print(f"[green]✓[/green] Using external route: {registry_url}/{registry_namespace}/{image_name}")
         else:
-            registry_url = f"image-registry.openshift-image-registry.svc:5000/{namespace}"
-            console.print(f"[green]✓[/green] Using internal service: {registry_url}")
+            registry_url = "image-registry.openshift-image-registry.svc:5000"
+            registry_namespace = namespace
+            image_name = "ansible-portal-plugins"
+            console.print(f"[green]✓[/green] Using internal service: {registry_url}/{registry_namespace}/{image_name}")
     else:
-        registry_url = f"{registry}/{namespace}" if not registry.endswith(namespace) else registry
+        # Parse registry URL: quay.io/sagpaul/ansible-portal-plugins
+        parts = registry.split("/")
+        if len(parts) >= 3:
+            registry_url = parts[0]
+            registry_namespace = parts[1]
+            image_name = "/".join(parts[2:])
+        elif len(parts) == 2:
+            registry_url = parts[0]
+            registry_namespace = parts[1]
+            image_name = "ansible-portal-plugins"
+        else:
+            registry_url = registry
+            registry_namespace = namespace
+            image_name = "ansible-portal-plugins"
+        console.print(f"[green]✓[/green] Using registry: {registry_url}/{registry_namespace}/{image_name}")
 
     # Create registry config
     reg_config = RegistryConfig(
-        url=registry_url.rsplit("/", 1)[0],
-        namespace=namespace,
+        url=registry_url,
+        namespace=registry_namespace,
+        image_name=image_name,
         tag=tag,
         insecure=True,  # Dev mode - skip TLS verification
     )
 
     # Build plugins
     if not skip_plugin_build:
-        _build_plugins(plugins_path)
+        _build_plugins(plugins_path, upstream_plugins_path)
     else:
         console.print("[yellow]Skipping plugin build (--skip-plugin-build)[/yellow]")
 
@@ -130,8 +168,11 @@ def build(
     # Validate image
     registry_client.validate_image()
 
-    # Create auth secret
-    _create_auth_secret(namespace, release_name)
+    # Create auth secret (optional, only if auth file provided)
+    if registry_auth_file:
+        _create_auth_secret(namespace, release_name, registry_auth_file)
+    else:
+        console.print("[dim]Skipping registry auth secret creation (no --registry-auth-file provided)[/dim]")
 
     console.print(
         f"\n[bold green]✓ Plugin image ready:[/bold green] "
@@ -161,32 +202,71 @@ def _check_prerequisites() -> None:
         raise click.Abort()
 
 
-def _build_plugins(plugins_path: Path, build_type: str = "portal") -> None:
+def _build_plugins(plugins_path: Path, upstream_plugins_path: Path, build_type: str = "portal") -> None:
     """Build all plugins using build.sh script.
 
     This matches the documented workflow in helm-chart-developer-guide.md.
     The build.sh script handles yarn install, tsc, build, and plugin export.
 
     Args:
-        plugins_path: Path to ansible-rhdh-plugins repository
+        plugins_path: Path to ansible-rhdh-plugins repository (downstream)
+        upstream_plugins_path: Path to ansible-backstage-plugins repository (upstream)
         build_type: Build type - "portal" (default), "rhdh", or "all"
     """
-    # Resolve to absolute path
+    # Resolve to absolute paths
     plugins_path = plugins_path.resolve()
-    console.print(f"[blue]Building plugins from source: {plugins_path}[/blue]")
+    upstream_plugins_path = upstream_plugins_path.resolve()
 
-    # Verify build.sh exists
+    console.print(f"[blue]Downstream repo: {plugins_path}[/blue]")
+    console.print(f"[blue]Upstream repo: {upstream_plugins_path}[/blue]")
+
+    # Verify build.sh exists in downstream repo
     build_script = plugins_path / "build.sh"
     if not build_script.exists():
         console.print(f"[red]Error: build.sh not found at {build_script}[/red]")
         console.print("[yellow]Make sure plugins_path points to ansible-rhdh-plugins repo[/yellow]")
         raise click.Abort()
 
-    # Verify upstream repo is linked
+    # Verify upstream repo has package.json
+    if not (upstream_plugins_path / "package.json").exists():
+        console.print(f"[red]Error: package.json not found in upstream repo[/red]")
+        console.print(f"[yellow]Check: {upstream_plugins_path}/package.json[/yellow]")
+        raise click.Abort()
+
+    # Create symlink to upstream repo
     upstream_link = plugins_path / "ansible-backstage-plugins"
+    if upstream_link.exists():
+        # Check if it's a symlink or directory
+        if upstream_link.is_symlink():
+            # It's a symlink - check if it points to the correct location
+            if upstream_link.resolve() != upstream_plugins_path:
+                console.print(f"[yellow]Removing existing symlink (points to wrong location)[/yellow]")
+                console.print(f"[dim]Current: {upstream_link.resolve()}[/dim]")
+                console.print(f"[dim]Expected: {upstream_plugins_path}[/dim]")
+                upstream_link.unlink()
+            else:
+                console.print(f"[green]✓[/green] Symlink already exists and points to correct location")
+        else:
+            # It's a directory, not a symlink
+            console.print(f"[red]Error: ansible-backstage-plugins exists as a directory, not a symlink[/red]")
+            console.print(f"[yellow]Please remove it manually and re-run:[/yellow]")
+            console.print(f"[dim]  rm -rf {upstream_link}[/dim]")
+            console.print(f"[dim]Or if it contains work, move it elsewhere first[/dim]")
+            raise click.Abort()
+
     if not upstream_link.exists():
-        console.print(f"[red]Error: ansible-backstage-plugins not found at {upstream_link}[/red]")
-        console.print("[yellow]Create symlink: ln -sfn ../ansible-backstage-plugins ansible-backstage-plugins[/yellow]")
+        console.print(f"[blue]Creating symlink: ansible-backstage-plugins → {upstream_plugins_path}[/blue]")
+        try:
+            upstream_link.symlink_to(upstream_plugins_path)
+            console.print(f"[green]✓[/green] Symlink created successfully")
+        except Exception as e:
+            console.print(f"[red]Failed to create symlink: {e}[/red]")
+            raise click.Abort()
+
+    # Verify symlink points to valid repo
+    if not (upstream_link / "package.json").exists():
+        console.print(f"[red]Error: Symlink exists but doesn't point to valid repo[/red]")
+        console.print(f"[yellow]Check: {upstream_link} -> {upstream_link.resolve()}[/yellow]")
         raise click.Abort()
 
     import os
@@ -265,48 +345,29 @@ def _collect_plugin_tarballs(plugins_path: Path) -> list[Path]:
     return tarballs
 
 
-def _create_auth_secret(namespace: str, release_name: str) -> None:
-    """Create registry auth secret for RHDH init container."""
-    console.print("[blue]Creating registry auth secret...[/blue]")
+def _create_auth_secret(namespace: str, release_name: str, auth_file_path: Path) -> None:
+    """Create registry auth secret for RHDH init container.
+
+    Args:
+        namespace: OpenShift namespace
+        release_name: Helm release name
+        auth_file_path: Path to auth.json file with registry credentials
+    """
+    console.print(f"[blue]Creating registry auth secret from: {auth_file_path}[/blue]")
 
     secret_name = f"{release_name}-dynamic-plugins-registry-auth"
 
     try:
-        # Use podman/docker auth file if it exists
         import json
-        import os
-        from pathlib import Path as PathlibPath
 
-        # Try to find auth file in standard locations
-        auth_paths = [
-            PathlibPath.home() / ".docker" / "config.json",
-            PathlibPath(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "containers" / "auth.json",
-            PathlibPath.home() / ".config" / "containers" / "auth.json",
-        ]
+        # Validate auth file
+        with open(auth_file_path) as f:
+            auth_json = json.load(f)
 
-        auth_json = None
-        for path in auth_paths:
-            if path.exists():
-                with open(path) as f:
-                    auth_json = json.load(f)
-                console.print(f"[green]✓[/green] Found auth config: {path}")
-                break
-
-        if not auth_json:
-            # Fallback: try oc registry login
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as auth_file:
-                auth_path = Path(auth_file.name)
-            try:
-                AuthSecretManager.get_oc_registry_auth(auth_path)
-                with open(auth_path) as f:
-                    auth_json = json.load(f)
-            finally:
-                auth_path.unlink(missing_ok=True)
-
-        # Write auth.json to temp file for secret creation
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as auth_file:
-            auth_path = Path(auth_file.name)
-            json.dump(auth_json, auth_file)
+        if "auths" not in auth_json:
+            console.print(f"[red]Invalid auth file: missing 'auths' key[/red]")
+            console.print("[yellow]Expected format: {\"auths\": {\"registry.example.com\": {\"auth\": \"base64...\"}}}")
+            raise click.Abort()
 
         # Create secret using oc
         # Note: Must be Opaque type with auth.json key for RHDH init container
@@ -318,7 +379,7 @@ def _create_auth_secret(namespace: str, release_name: str) -> None:
                 "secret",
                 "generic",
                 secret_name,
-                f"--from-file=auth.json={auth_path}",
+                f"--from-file=auth.json={auth_file_path}",
                 "-n",
                 namespace,
                 "--dry-run=client",
@@ -347,21 +408,28 @@ def _create_auth_secret(namespace: str, release_name: str) -> None:
     except Exception as e:
         console.print(f"[red]Failed to create auth secret: {e}[/red]")
         raise click.Abort()
-    finally:
-        # Clean up auth file
-        if 'auth_path' in locals():
-            auth_path.unlink(missing_ok=True)
 
 
 def _build_and_push_plugins(
     plugins_path: Path,
+    upstream_plugins_path: Path,
     registry_config: RegistryConfig,
     image_tag: str,
     namespace: str,
     release_name: str,
     skip_plugin_build: bool = False,
+    registry_auth_file: Path | None = None,
 ) -> str:
     """Build and push plugins - helper function for deployer.
+
+    Args:
+        plugins_path: Path to ansible-rhdh-plugins repository (downstream)
+        upstream_plugins_path: Path to ansible-backstage-plugins repository (upstream)
+        registry_config: Registry configuration
+        image_tag: Image tag to use
+        namespace: OpenShift namespace
+        release_name: Helm release name
+        skip_plugin_build: Skip plugin build step if True
 
     Returns:
         Full image URL with tag (e.g., registry.example.com/namespace/image:tag)
@@ -376,7 +444,7 @@ def _build_and_push_plugins(
 
     # Build plugins
     if not skip_plugin_build:
-        _build_plugins(plugins_path)
+        _build_plugins(plugins_path, upstream_plugins_path)
     else:
         console.print("[yellow]Skipping plugin build (reusing existing)[/yellow]")
 
@@ -398,8 +466,11 @@ def _build_and_push_plugins(
     # Validate image
     registry_client.validate_image()
 
-    # Create auth secret
-    _create_auth_secret(namespace, release_name)
+    # Create auth secret (optional, only if auth file provided)
+    if registry_auth_file:
+        _create_auth_secret(namespace, release_name, registry_auth_file)
+    else:
+        console.print("[dim]Skipping registry auth secret creation (no auth file provided)[/dim]")
 
     console.print(
         f"\n[bold green]✓ Plugin image ready:[/bold green] "

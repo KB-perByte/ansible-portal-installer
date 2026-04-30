@@ -46,8 +46,15 @@ console = Console()
     "--plugins-path",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     default=None,
-    help="Path to ansible-rhdh-plugins repository (or set PLUGINS_PATH in .env)",
+    help="Path to ansible-rhdh-plugins repository (downstream) (or set PLUGINS_PATH in .env)",
     envvar="PLUGINS_PATH",
+)
+@click.option(
+    "--upstream-plugins-path",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Path to ansible-backstage-plugins repository (upstream) (or set UPSTREAM_PLUGINS_PATH in .env)",
+    envvar="UPSTREAM_PLUGINS_PATH",
 )
 @click.option(
     "--aap-host",
@@ -126,6 +133,12 @@ console = Console()
     envvar="SKIP_PLUGIN_BUILD",
 )
 @click.option(
+    "--registry-auth-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to registry auth.json file (optional, only needed for authenticated registries)",
+    envvar="REGISTRY_AUTH_FILE",
+)
+@click.option(
     "--skip-rollout-wait",
     is_flag=True,
     help="Do not wait for kubectl rollout after Helm (useful to debug slow/stuck pods)",
@@ -164,6 +177,7 @@ def deploy(
     release_name: str | None,
     chart_path: Path | None,
     plugins_path: Path | None,
+    upstream_plugins_path: Path | None,
     aap_host: str | None,
     aap_token: str | None,
     oauth_client_id: str | None,
@@ -178,6 +192,7 @@ def deploy(
     image_tag: str | None,
     admin_password: str | None,
     skip_plugin_build: bool,
+    registry_auth_file: Path | None,
     skip_rollout_wait: bool,
     rollout_timeout: str,
     check_ssl: bool,
@@ -220,6 +235,7 @@ def deploy(
         release_name = release_name or settings.release_name
         chart_path = chart_path or Path(settings.chart_path)
         plugins_path = plugins_path or Path(settings.plugins_path)
+        upstream_plugins_path = upstream_plugins_path or (Path(settings.upstream_plugins_path) if settings.upstream_plugins_path else None)
         aap_host = aap_host or settings.aap_host_url
         aap_token = aap_token or settings.aap_token
         oauth_client_id = oauth_client_id or settings.oauth_client_id
@@ -232,6 +248,7 @@ def deploy(
         gitlab_client_secret = gitlab_client_secret or settings.gitlab_client_secret
         registry = registry or settings.plugin_registry
         image_tag = image_tag or settings.plugin_image_tag
+        registry_auth_file = registry_auth_file or (Path(settings.registry_auth_file) if settings.registry_auth_file else None)
         admin_password = admin_password or settings.portal_admin_password
 
     # Apply defaults for optional fields if still None
@@ -253,6 +270,8 @@ def deploy(
         missing.append("--oauth-client-id (or OAUTH_CLIENT_ID in .env)")
     if not oauth_client_secret:
         missing.append("--oauth-client-secret (or OAUTH_CLIENT_SECRET in .env)")
+    if not skip_plugin_build and not upstream_plugins_path:
+        missing.append("--upstream-plugins-path (or UPSTREAM_PLUGINS_PATH in .env) - required when building plugins")
 
     if missing:
         console.print("[bold red]Missing required configuration:[/bold red]")
@@ -331,7 +350,9 @@ def deploy(
         release_name=release_name,
         chart_path=chart_path,
         plugins_path=plugins_path,
+        upstream_plugins_path=upstream_plugins_path,
         registry=registry_config,
+        registry_auth_file=registry_auth_file,
         aap=aap_config,
         scm=scm_config,
         image_tag=image_tag,

@@ -164,91 +164,91 @@ def _wait_for_deployment_with_logs(
                 except json.JSONDecodeError:
                     pass
 
-                    # Stream logs from init container if pod exists and init not complete
-                    if pod_name and not init_container_complete:
-                        try:
-                            log_result = subprocess.run(
-                                [
-                                    "kubectl", "logs",
-                                    pod_name,
-                                    "-n", namespace,
-                                    "-c", "install-dynamic-plugins",
-                                    "--tail=50",
-                                    "--timestamps",
-                                ],
-                                capture_output=True,
-                                text=True,
-                                timeout=5,
-                            )
+                # Stream logs from init container if pod exists and init not complete
+                if pod_name and not init_container_complete:
+                    try:
+                        log_result = subprocess.run(
+                            [
+                                "kubectl", "logs",
+                                pod_name,
+                                "-n", namespace,
+                                "-c", "install-dynamic-plugins",
+                                "--tail=50",
+                                "--timestamps",
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
 
-                            if log_result.returncode == 0 and log_result.stdout:
-                                lines = log_result.stdout.strip().split("\n")
+                        if log_result.returncode == 0 and log_result.stdout:
+                            lines = log_result.stdout.strip().split("\n")
 
-                                # Show only new lines (not in buffer)
-                                for line in lines:
-                                    if line.strip() and line not in log_buffer:
-                                        # Extract timestamp and message
-                                        parts = line.split(" ", 1)
-                                        if len(parts) == 2:
-                                            timestamp, msg = parts
-                                            # Highlight important messages
-                                            if "error" in msg.lower() or "failed" in msg.lower():
-                                                console.print(f"  [red]✗[/red] {msg}")
-                                            elif "pulling" in msg.lower() or "downloading" in msg.lower():
-                                                console.print(f"  [yellow]↓[/yellow] {msg}")
-                                            elif "installing" in msg.lower() or "extracting" in msg.lower():
-                                                console.print(f"  [blue]⚙[/blue] {msg}")
-                                            elif "complete" in msg.lower() or "success" in msg.lower():
-                                                console.print(f"  [green]✓[/green] {msg}")
-                                            else:
-                                                console.print(f"  [dim]{msg}[/dim]")
-                                        log_buffer.append(line)
+                            # Show only new lines (not in buffer)
+                            for line in lines:
+                                if line.strip() and line not in log_buffer:
+                                    # Extract timestamp and message
+                                    parts = line.split(" ", 1)
+                                    if len(parts) == 2:
+                                        timestamp, msg = parts
+                                        # Highlight important messages
+                                        if "error" in msg.lower() or "failed" in msg.lower():
+                                            console.print(f"  [red]✗[/red] {msg}")
+                                        elif "pulling" in msg.lower() or "downloading" in msg.lower():
+                                            console.print(f"  [yellow]↓[/yellow] {msg}")
+                                        elif "installing" in msg.lower() or "extracting" in msg.lower():
+                                            console.print(f"  [blue]⚙[/blue] {msg}")
+                                        elif "complete" in msg.lower() or "success" in msg.lower():
+                                            console.print(f"  [green]✓[/green] {msg}")
+                                        else:
+                                            console.print(f"  [dim]{msg}[/dim]")
+                                    log_buffer.append(line)
 
-                                # Limit buffer size
-                                if len(log_buffer) > 100:
-                                    log_buffer = log_buffer[-50:]
+                            # Limit buffer size
+                            if len(log_buffer) > 100:
+                                log_buffer = log_buffer[-50:]
 
-                                # Check if init container finished
-                                full_log = "\n".join(lines)
-                                if "Successfully installed" in full_log or "Installed" in full_log:
-                                    init_container_complete = True
-                                    console.print("\n[green]✓ Plugin installation complete[/green]")
+                            # Check if init container finished
+                            full_log = "\n".join(lines)
+                            if "Successfully installed" in full_log or "Installed" in full_log:
+                                init_container_complete = True
+                                console.print("\n[green]✓ Plugin installation complete[/green]")
 
-                        except subprocess.TimeoutExpired:
-                            pass
-                        except Exception as e:
-                            # Init container might not be ready yet
-                            if "waiting to start" not in str(e).lower():
-                                pass  # Silently ignore other errors during early pod startup
+                    except subprocess.TimeoutExpired:
+                        pass
+                    except Exception as e:
+                        # Init container might not be ready yet
+                        if "waiting to start" not in str(e).lower():
+                            pass  # Silently ignore other errors during early pod startup
 
-                    # If init complete, check backend logs
-                    if init_container_complete and not backend_started and pod_name:
-                        try:
-                            backend_log = subprocess.run(
-                                [
-                                    "kubectl", "logs",
-                                    pod_name,
-                                    "-n", namespace,
-                                    "-c", "backstage-backend",
-                                    "--tail=10",
-                                ],
-                                capture_output=True,
-                                text=True,
-                                timeout=5,
-                            )
+                # If init complete, check backend logs
+                if init_container_complete and not backend_started and pod_name:
+                    try:
+                        backend_log = subprocess.run(
+                            [
+                                "kubectl", "logs",
+                                pod_name,
+                                "-n", namespace,
+                                "-c", "backstage-backend",
+                                "--tail=10",
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
 
-                            if backend_log.returncode == 0 and backend_log.stdout:
-                                if "Listening on" in backend_log.stdout or "started" in backend_log.stdout.lower():
-                                    backend_started = True
-                                    console.print("[green]✓ Backend started[/green]")
-                                else:
-                                    # Show last backend log line
-                                    lines = backend_log.stdout.strip().split("\n")
-                                    if lines and lines[-1].strip():
-                                        console.print(f"  [dim]Backend: {lines[-1].strip()}[/dim]")
+                        if backend_log.returncode == 0 and backend_log.stdout:
+                            if "Listening on" in backend_log.stdout or "started" in backend_log.stdout.lower():
+                                backend_started = True
+                                console.print("[green]✓ Backend started[/green]")
+                            else:
+                                # Show last backend log line
+                                lines = backend_log.stdout.strip().split("\n")
+                                if lines and lines[-1].strip():
+                                    console.print(f"  [dim]Backend: {lines[-1].strip()}[/dim]")
 
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
 
             else:
                 # No pod found yet
@@ -296,6 +296,18 @@ class HelmDeployer(DeploymentBackend):
 
         console.print("[bold blue]Ansible Portal - Helm Deployment[/bold blue]\n")
 
+        # Pre-flight check: verify Kubernetes authentication
+        try:
+            console.print("[dim]Verifying Kubernetes authentication...[/dim]")
+            self.k8s.core_v1.list_namespace(limit=1)
+            console.print("[green]✓[/green] Authenticated to Kubernetes cluster\n")
+        except Exception as e:
+            console.print("[red]✗ Failed to authenticate to Kubernetes cluster[/red]")
+            console.print(f"[red]Error: {e}[/red]")
+            console.print("\n[yellow]Please login to your cluster:[/yellow]")
+            console.print("  oc login --server=<SERVER> --token=<TOKEN>")
+            sys.exit(1)
+
         # Ensure namespace exists
         if not self.k8s.namespace_exists(namespace):
             console.print(f"[blue]Creating namespace: {namespace}[/blue]")
@@ -327,10 +339,12 @@ class HelmDeployer(DeploymentBackend):
 
             registry_url = _build_and_push_plugins(
                 plugins_path=config.plugins_path,
+                upstream_plugins_path=config.upstream_plugins_path,
                 registry_config=registry_config,
                 image_tag=config.image_tag,
                 namespace=namespace,
                 release_name=release_name,
+                registry_auth_file=config.registry_auth_file,
             )
         else:
             console.print("[yellow]Skipping plugin build[/yellow]")
@@ -341,10 +355,13 @@ class HelmDeployer(DeploymentBackend):
                 console.print("[red]No registry config provided with --skip-build[/red]")
                 sys.exit(1)
 
-            # Create registry auth secret for pulling OCI images
+            # Create registry auth secret for pulling OCI images (optional)
             # (normally done during build, but needed here too when skipping build)
-            from ...commands.build import _create_auth_secret
-            _create_auth_secret(namespace, release_name)
+            if config.registry_auth_file:
+                from ...commands.build import _create_auth_secret
+                _create_auth_secret(namespace, release_name, config.registry_auth_file)
+            else:
+                console.print("[dim]Skipping registry auth secret (no --registry-auth-file provided)[/dim]")
 
         if config.aap is None:
             console.print(

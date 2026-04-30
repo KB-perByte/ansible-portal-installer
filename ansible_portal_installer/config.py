@@ -110,11 +110,15 @@ class DeploymentConfig(BaseModel):
         default=Path("../ansible-portal-chart"), description="Path to deployment configuration"
     )
     plugins_path: Path = Field(
-        default=Path.cwd(), description="Path to ansible-rhdh-plugins repo"
+        default=Path.cwd(), description="Path to ansible-rhdh-plugins repo (downstream)"
+    )
+    upstream_plugins_path: Path | None = Field(
+        default=None, description="Path to ansible-backstage-plugins repo (upstream)"
     )
 
     # Configuration
     registry: Optional["RegistryConfig"] = Field(default=None, description="Registry configuration")
+    registry_auth_file: Path | None = Field(default=None, description="Path to registry auth.json file")
     aap: Optional["AAPConfig"] = Field(default=None, description="AAP configuration")
     scm: Optional["SCMConfig"] = Field(default=None, description="SCM configuration")
     image_tag: str = Field(default="dev", description="Plugin image tag")
@@ -185,6 +189,7 @@ class PortalInstallerSettings(BaseSettings):
     release_name: str = Field(default="rhaap-portal-dev", alias="RELEASE_NAME")
     chart_path: str = Field(default="../ansible-portal-chart", alias="CHART_PATH")
     plugins_path: str = Field(default=".", alias="PLUGINS_PATH")
+    upstream_plugins_path: str | None = Field(default=None, alias="UPSTREAM_PLUGINS_PATH")
 
     # AAP
     aap_host_url: str | None = Field(default=None, alias="AAP_HOST_URL")
@@ -203,6 +208,7 @@ class PortalInstallerSettings(BaseSettings):
     # Registry
     plugin_registry: str | None = Field(default=None, alias="PLUGIN_REGISTRY")
     plugin_image_tag: str = Field(default="dev", alias="PLUGIN_IMAGE_TAG")
+    registry_auth_file: str | None = Field(default=None, alias="REGISTRY_AUTH_FILE")
 
     # Portal admin
     portal_admin_password: str | None = Field(default=None, alias="PORTAL_ADMIN_PASSWORD")
