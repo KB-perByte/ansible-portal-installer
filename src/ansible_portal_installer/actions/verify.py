@@ -11,7 +11,7 @@ from ..ui import (
     console,
     print_status_table,
 )
-from ..utils import check_tool_exists, oc_get_pods, oc_get_route
+from ..utils import check_tool_exists, get_tool_version, oc_get_pods, oc_get_route
 
 
 def check_prerequisites() -> dict[str, bool]:
@@ -28,7 +28,11 @@ def check_prerequisites() -> dict[str, bool]:
         results[tool] = available
 
         if available:
-            print_success(f"{tool} is installed")
+            version = get_tool_version(tool)
+            if version:
+                print_success(f"{tool} is installed - {version}")
+            else:
+                print_success(f"{tool} is installed")
         else:
             print_error(f"{tool} is NOT installed")
 

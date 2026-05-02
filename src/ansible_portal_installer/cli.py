@@ -355,6 +355,86 @@ def cleanup(ctx: click.Context, namespace: Optional[str], release: Optional[str]
         sys.exit(EXIT_ERROR)
 
 
+@cli.command("helm-teardown")
+@click.option("--namespace", "-n", help="OpenShift namespace (default: from .env)")
+@click.option("--release", "-r", help="Helm release name (default: from .env)")
+@click.option("--remove-secrets", is_flag=True, help="Delete secrets (secrets-rhaap-portal, secrets-scm, registry-auth)")
+@click.option("--remove-namespace", is_flag=True, help="Delete the entire namespace/project (DESTRUCTIVE)")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
+@click.pass_context
+def teardown_command(ctx: click.Context, namespace: Optional[str], release: Optional[str], remove_secrets: bool, remove_namespace: bool, yes: bool) -> None:
+    """Teardown Helm deployment with optional cleanup of secrets and namespace.
+
+    This follows the cleanup process from the Helm chart developer guide:
+    - Uninstall the Helm release
+    - Optionally delete secrets (--remove-secrets)
+    - Optionally delete the entire namespace (--remove-namespace)
+
+    Examples:
+      # Basic teardown (uninstall Helm release only)
+      ansible-portal-installer helm-teardown
+
+      # Teardown and remove secrets
+      ansible-portal-installer helm-teardown --remove-secrets
+
+      # Complete cleanup (remove everything)
+      ansible-portal-installer helm-teardown --remove-secrets --remove-namespace
+    """
+    try:
+        settings = get_settings()
+        if namespace:
+            settings.openshift_namespace = namespace
+        if release:
+            settings.helm_release_name = release
+
+        settings.verbose = ctx.obj.get("verbose", False)
+
+        # Build confirmation message
+        actions = [f"Uninstall Helm release '{settings.helm_release_name}'"]
+        if remove_secrets:
+            actions.append("Delete secrets (rhaap-portal, scm, registry-auth)")
+        if remove_namespace:
+            actions.append(f"⚠️  DELETE ENTIRE NAMESPACE '{settings.openshift_namespace}' ⚠️")
+
+        console.print("\n[bold]Teardown actions:[/bold]")
+        for action in actions:
+            console.print(f"  • {action}")
+        console.print()
+
+        # Confirm teardown
+        if not yes:
+            if remove_namespace:
+                console.print("[bold yellow]WARNING: Deleting the namespace will remove ALL resources in it![/bold yellow]")
+
+            if not confirm("Proceed with teardown?"):
+                print_warning("Teardown cancelled")
+                return
+
+        # Import and call the teardown action
+        from .actions.teardown import helm_teardown as do_helm_teardown
+
+        do_helm_teardown(
+            settings=settings,
+            remove_secrets=remove_secrets,
+            remove_namespace=remove_namespace,
+            verbose=settings.verbose,
+        )
+
+        sys.exit(EXIT_SUCCESS)
+
+    except (InstallerError, ConfigurationError) as e:
+        print_error(f"Teardown failed: {e}")
+        sys.exit(EXIT_ERROR)
+    except KeyboardInterrupt:
+        print_warning("\nTeardown cancelled by user")
+        sys.exit(EXIT_KEYBOARD_INTERRUPT)
+    except Exception as e:
+        print_error(f"Unexpected error: {e}")
+        if ctx.obj.get("verbose"):
+            console.print_exception()
+        sys.exit(EXIT_ERROR)
+
+
 def main() -> None:
     """Main entry point."""
     try:

@@ -12,7 +12,7 @@ DEFAULT_BUILD_TYPE = "portal"
 DEFAULT_PLUGIN_MODE = "oci"
 
 REQUIRED_NODE_VERSIONS = ["20", "22"]
-REQUIRED_TOOLS = ["yarn", "podman", "oc", "helm", "git"]
+REQUIRED_TOOLS = ["yarn", "podman", "oc", "helm", "git", "skopeo"]
 
 PLUGIN_SECRETS = {
     "rhaap": "secrets-rhaap-portal",
