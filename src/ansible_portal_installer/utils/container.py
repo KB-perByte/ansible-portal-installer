@@ -127,3 +127,33 @@ def tag_image(source: str, target: str, tool: Optional[str] = None) -> None:
         run_command([tool, "tag", source, target])
     except Exception as e:
         raise ContainerError(f"Failed to tag image: {e}") from e
+
+
+def skopeo_inspect(
+    image_ref: str,
+    credentials_file: Optional[Path] = None,
+) -> dict:
+    """Inspect an OCI image using skopeo.
+
+    Args:
+        image_ref: Full image reference (registry/org/name:tag)
+        credentials_file: Path to auth.json file
+
+    Returns:
+        Dict with image manifest information
+
+    Raises:
+        ContainerError: If inspection fails
+    """
+    ensure_tool_exists("skopeo")
+
+    cmd = ["skopeo", "inspect", f"docker://{image_ref}"]
+    if credentials_file:
+        cmd.extend(["--authfile", str(credentials_file)])
+
+    try:
+        result = run_command(cmd, capture_output=True)
+        import json
+        return json.loads(result.stdout)
+    except Exception as e:
+        raise ContainerError(f"Failed to inspect image: {e}") from e

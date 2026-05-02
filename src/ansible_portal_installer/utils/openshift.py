@@ -244,3 +244,163 @@ def oc_wait_for_pods(
         )
     except Exception as e:
         raise OpenShiftError(f"Pods did not become ready: {e}") from e
+
+
+def oc_get_pod_logs(
+    pod_name: str,
+    container: Optional[str] = None,
+    namespace: Optional[str] = None,
+    previous: bool = False,
+) -> str:
+    """Get logs from a pod container.
+
+    Args:
+        pod_name: Pod name
+        container: Container name (omit for single-container pods)
+        namespace: Target namespace
+        previous: Get logs from previous container instance
+
+    Returns:
+        Log output as string
+
+    Raises:
+        OpenShiftError: If getting logs fails
+    """
+    ensure_tool_exists("oc")
+
+    cmd = ["oc", "logs", pod_name]
+    if container:
+        cmd.extend(["-c", container])
+    if namespace:
+        cmd.extend(["-n", namespace])
+    if previous:
+        cmd.append("--previous")
+
+    try:
+        result = run_command(cmd, capture_output=True)
+        return result.stdout
+    except Exception as e:
+        raise OpenShiftError(f"Failed to get logs from pod '{pod_name}': {e}") from e
+
+
+def oc_describe_pod(
+    pod_name: str,
+    namespace: Optional[str] = None,
+) -> str:
+    """Describe a pod.
+
+    Args:
+        pod_name: Pod name
+        namespace: Target namespace
+
+    Returns:
+        Describe output as string
+
+    Raises:
+        OpenShiftError: If describe fails
+    """
+    ensure_tool_exists("oc")
+
+    cmd = ["oc", "describe", "pod", pod_name]
+    if namespace:
+        cmd.extend(["-n", namespace])
+
+    try:
+        result = run_command(cmd, capture_output=True)
+        return result.stdout
+    except Exception as e:
+        raise OpenShiftError(f"Failed to describe pod '{pod_name}': {e}") from e
+
+
+def oc_get_events(
+    namespace: Optional[str] = None,
+    sort_by: str = ".lastTimestamp",
+) -> str:
+    """Get events in a namespace.
+
+    Args:
+        namespace: Target namespace
+        sort_by: Field to sort by (default: .lastTimestamp)
+
+    Returns:
+        Events output as string
+
+    Raises:
+        OpenShiftError: If getting events fails
+    """
+    ensure_tool_exists("oc")
+
+    cmd = ["oc", "get", "events", f"--sort-by={sort_by}"]
+    if namespace:
+        cmd.extend(["-n", namespace])
+
+    try:
+        result = run_command(cmd, capture_output=True)
+        return result.stdout
+    except Exception as e:
+        raise OpenShiftError(f"Failed to get events: {e}") from e
+
+
+def oc_rollout_status(
+    deployment_name: str,
+    namespace: Optional[str] = None,
+    timeout: int = 600,
+) -> None:
+    """Wait for deployment rollout to complete.
+
+    Args:
+        deployment_name: Deployment name
+        namespace: Target namespace
+        timeout: Timeout in seconds
+
+    Raises:
+        OpenShiftError: If rollout fails or times out
+    """
+    ensure_tool_exists("oc")
+
+    cmd = ["oc", "rollout", "status", f"deployment/{deployment_name}"]
+    if namespace:
+        cmd.extend(["-n", namespace])
+    cmd.append(f"--timeout={timeout}s")
+
+    try:
+        run_command(cmd)
+    except Exception as e:
+        raise OpenShiftError(f"Rollout status check failed: {e}") from e
+
+
+def oc_get_pod_status(
+    pod_name: str,
+    namespace: Optional[str] = None,
+) -> dict:
+    """Get detailed pod status including container states.
+
+    Args:
+        pod_name: Pod name
+        namespace: Target namespace
+
+    Returns:
+        Dict with pod status information
+
+    Raises:
+        OpenShiftError: If getting status fails
+    """
+    ensure_tool_exists("oc")
+
+    cmd = [
+        "oc",
+        "get",
+        "pod",
+        pod_name,
+        "-o",
+        "json",
+    ]
+    if namespace:
+        cmd.extend(["-n", namespace])
+
+    try:
+        result = run_command(cmd, capture_output=True)
+        import json
+        return json.loads(result.stdout)
+    except Exception as e:
+        raise OpenShiftError(f"Failed to get pod status: {e}") from e

@@ -1,0 +1,118 @@
+Name:             my-portal-postgresql-0
+Namespace:        sagpaul-installer
+Priority:         0
+Service Account:  default
+Node:             ip-10-0-69-30.ap-south-1.compute.internal/10.0.69.30
+Start Time:       Sat, 02 May 2026 22:56:18 +0530
+Labels:           app.kubernetes.io/component=primary
+                  app.kubernetes.io/instance=my-portal
+                  app.kubernetes.io/managed-by=Helm
+                  app.kubernetes.io/name=postgresql
+                  app.kubernetes.io/version=15.4.0
+                  apps.kubernetes.io/pod-index=0
+                  controller-revision-hash=my-portal-postgresql-6f8d9d94cb
+                  helm.sh/chart=postgresql-12.10.0
+                  statefulset.kubernetes.io/pod-name=my-portal-postgresql-0
+Annotations:      k8s.ovn.org/pod-networks:
+                    {"default":{"ip_addresses":["10.131.1.95/23"],"mac_address":"0a:58:0a:83:01:5f","gateway_ips":["10.131.0.1"],"routes":[{"dest":"10.128.0.0...
+                  k8s.v1.cni.cncf.io/network-status:
+                    [{
+                        "name": "ovn-kubernetes",
+                        "interface": "eth0",
+                        "ips": [
+                            "10.131.1.95"
+                        ],
+                        "mac": "0a:58:0a:83:01:5f",
+                        "default": true,
+                        "dns": {}
+                    }]
+                  openshift.io/scc: restricted-v2
+                  seccomp.security.alpha.kubernetes.io/pod: runtime/default
+                  security.openshift.io/validated-scc-subject-type: user
+Status:           Running
+SeccompProfile:   RuntimeDefault
+IP:               10.131.1.95
+IPs:
+  IP:           10.131.1.95
+Controlled By:  StatefulSet/my-portal-postgresql
+Containers:
+  postgresql:
+    Container ID:   cri-o://b71f112782111a44e3c175d166f6e711440112f6c1273f947830c8c4c1280343
+    Image:          registry.redhat.io/rhel9/postgresql-15@sha256:8a00879923de4ed645006786a211c6fccc46b578db09edb58090a0a2bdca7a27
+    Image ID:       registry.redhat.io/rhel9/postgresql-15@sha256:8a00879923de4ed645006786a211c6fccc46b578db09edb58090a0a2bdca7a27
+    Port:           5432/TCP (tcp-postgresql)
+    Host Port:      0/TCP (tcp-postgresql)
+    State:          Running
+      Started:      Sat, 02 May 2026 22:56:21 +0530
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:                250m
+      ephemeral-storage:  20Mi
+      memory:             1Gi
+    Requests:
+      cpu:                250m
+      ephemeral-storage:  20Mi
+      memory:             256Mi
+    Liveness:             exec [/bin/sh -c exec pg_isready -U "bn_backstage" -h 127.0.0.1 -p 5432] delay=30s timeout=5s period=10s #success=1 #failure=6
+    Readiness:            exec [/bin/sh -c -e exec pg_isready -U "bn_backstage" -h 127.0.0.1 -p 5432
+] delay=5s timeout=5s period=10s #success=1 #failure=6
+    Environment:
+      BITNAMI_DEBUG:                        false
+      POSTGRESQL_PORT_NUMBER:               5432
+      POSTGRESQL_VOLUME_DIR:                /var/lib/pgsql/data
+      PGDATA:                               /var/lib/pgsql/data/userdata
+      POSTGRES_USER:                        bn_backstage
+      POSTGRES_PASSWORD:                    <set to the key 'password' in secret 'my-portal-postgresql'>           Optional: false
+      POSTGRES_POSTGRES_PASSWORD:           <set to the key 'postgres-password' in secret 'my-portal-postgresql'>  Optional: false
+      POSTGRESQL_ENABLE_LDAP:               no
+      POSTGRESQL_ENABLE_TLS:                no
+      POSTGRESQL_LOG_HOSTNAME:              false
+      POSTGRESQL_LOG_CONNECTIONS:           false
+      POSTGRESQL_LOG_DISCONNECTIONS:        false
+      POSTGRESQL_PGAUDIT_LOG_CATALOG:       off
+      POSTGRESQL_CLIENT_MIN_MESSAGES:       error
+      POSTGRESQL_SHARED_PRELOAD_LIBRARIES:  pgaudit
+      POSTGRESQL_ADMIN_PASSWORD:            <set to the key 'postgres-password' in secret 'my-portal-postgresql'>  Optional: false
+    Mounts:
+      /dev/shm from dshm (rw)
+      /var/lib/pgsql/data from data (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-cs4m5 (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  data:
+    Type:       PersistentVolumeClaim (a reference to a PersistentVolumeClaim in the same namespace)
+    ClaimName:  data-my-portal-postgresql-0
+    ReadOnly:   false
+  dshm:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:     Memory
+    SizeLimit:  <unset>
+  kube-api-access-cs4m5:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+    ConfigMapName:           openshift-service-ca.crt
+    Optional:                false
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/memory-pressure:NoSchedule op=Exists
+                             node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:
+  Type    Reason                  Age   From                     Message
+  ----    ------                  ----  ----                     -------
+  Normal  Scheduled               30m   default-scheduler        Successfully assigned sagpaul-installer/my-portal-postgresql-0 to ip-10-0-69-30.ap-south-1.compute.internal
+  Normal  SuccessfulAttachVolume  30m   attachdetach-controller  AttachVolume.Attach succeeded for volume "pvc-e2a21924-cd86-4281-b2d6-2d87d70022e4"
+  Normal  AddedInterface          30m   multus                   Add eth0 [10.131.1.95/23] from ovn-kubernetes
+  Normal  Pulled                  30m   kubelet                  Container image "registry.redhat.io/rhel9/postgresql-15@sha256:8a00879923de4ed645006786a211c6fccc46b578db09edb58090a0a2bdca7a27" already present on machine
+  Normal  Created                 30m   kubelet                  Created container: postgresql
+  Normal  Started                 30m   kubelet                  Started container postgresql

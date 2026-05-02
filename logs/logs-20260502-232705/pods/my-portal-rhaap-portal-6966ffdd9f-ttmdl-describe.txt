@@ -1,0 +1,222 @@
+Name:             my-portal-rhaap-portal-6966ffdd9f-ttmdl
+Namespace:        sagpaul-installer
+Priority:         0
+Service Account:  default
+Node:             ip-10-0-0-7.ap-south-1.compute.internal/10.0.0.7
+Start Time:       Sat, 02 May 2026 22:56:23 +0530
+Labels:           app.kubernetes.io/component=backstage
+                  app.kubernetes.io/instance=my-portal
+                  app.kubernetes.io/managed-by=Helm
+                  app.kubernetes.io/name=rhaap-portal
+                  helm.sh/chart=upstream-2.6.3
+                  pod-template-hash=6966ffdd9f
+Annotations:      checksum/app-config: dab66b8fe2c4fc398a56d582e1c152767a1cfd9270b1af9e785858096c1124ab
+                  checksum/dynamic-plugins: d2aa0309a50ad08b9fe44c5b7a4cfc092545aa82872127323d2d06aa42ab3f88
+                  k8s.ovn.org/pod-networks:
+                    {"default":{"ip_addresses":["10.129.3.130/23"],"mac_address":"0a:58:0a:81:03:82","gateway_ips":["10.129.2.1"],"routes":[{"dest":"10.128.0....
+                  k8s.v1.cni.cncf.io/network-status:
+                    [{
+                        "name": "ovn-kubernetes",
+                        "interface": "eth0",
+                        "ips": [
+                            "10.129.3.130"
+                        ],
+                        "mac": "0a:58:0a:81:03:82",
+                        "default": true,
+                        "dns": {}
+                    }]
+                  openshift.io/scc: restricted-v2
+                  seccomp.security.alpha.kubernetes.io/pod: runtime/default
+                  security.openshift.io/validated-scc-subject-type: user
+Status:           Running
+SeccompProfile:   RuntimeDefault
+IP:               10.129.3.130
+IPs:
+  IP:           10.129.3.130
+Controlled By:  ReplicaSet/my-portal-rhaap-portal-6966ffdd9f
+Init Containers:
+  install-dynamic-plugins:
+    Container ID:    cri-o://54237599a1daa290d4e02efbd906437811c63cacd9349c3504939911efabd386
+    Image:           registry.redhat.io/rhdh/rhdh-hub-rhel9:1.9
+    Image ID:        registry.redhat.io/rhdh/rhdh-hub-rhel9@sha256:12a7f6cc89bf4364c038090b2b6532d90ab006444489f66a75c0d11da9f6e567
+    Port:            <none>
+    Host Port:       <none>
+    SeccompProfile:  RuntimeDefault
+    Command:
+      ./install-dynamic-plugins.sh
+      /dynamic-plugins-root
+    State:          Terminated
+      Reason:       Completed
+      Exit Code:    0
+      Started:      Sat, 02 May 2026 22:56:30 +0530
+      Finished:     Sat, 02 May 2026 22:59:10 +0530
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:                1
+      ephemeral-storage:  5Gi
+      memory:             2560Mi
+    Requests:
+      cpu:                250m
+      ephemeral-storage:  5Gi
+      memory:             256Mi
+    Environment:
+      NPM_CONFIG_USERCONFIG:         /opt/app-root/src/.npmrc.dynamic-plugins
+      MAX_ENTRY_SIZE:                30000000
+      CATALOG_INDEX_IMAGE:           registry.access.redhat.com/rhdh/plugin-catalog-index@sha256:7685bc0f28b4ae5fe41bb60bb807700be8572cc3a1d39c12cf5f82955684134c
+      CATALOG_ENTITIES_EXTRACT_DIR:  /extensions
+    Mounts:
+      /dynamic-plugins-root from dynamic-plugins-root (rw)
+      /extensions from extensions-catalog (rw)
+      /opt/app-root/src/.config/containers from dynamic-plugins-registry-auth (ro)
+      /opt/app-root/src/.npm/_cacache from npmcacache (rw)
+      /opt/app-root/src/.npmrc.dynamic-plugins from dynamic-plugins-npmrc (ro,path=".npmrc")
+      /opt/app-root/src/dynamic-plugins.yaml from dynamic-plugins (ro,path="dynamic-plugins.yaml")
+      /tmp from temp (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-p6gwt (ro)
+Containers:
+  backstage-backend:
+    Container ID:    cri-o://8260136ee43c9d4f1e69da1f47216461f96420c63deb314ead2fe92d380c1c3a
+    Image:           registry.redhat.io/rhdh/rhdh-hub-rhel9:1.9
+    Image ID:        registry.redhat.io/rhdh/rhdh-hub-rhel9@sha256:12a7f6cc89bf4364c038090b2b6532d90ab006444489f66a75c0d11da9f6e567
+    Port:            7007/TCP (backend)
+    Host Port:       0/TCP (backend)
+    SeccompProfile:  RuntimeDefault
+    Args:
+      --config
+      dynamic-plugins-root/app-config.dynamic-plugins.yaml
+      --config
+      /opt/app-root/src/app-config-from-configmap.yaml
+    State:          Running
+      Started:      Sat, 02 May 2026 22:59:11 +0530
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:                1
+      ephemeral-storage:  5Gi
+      memory:             2560Mi
+    Requests:
+      cpu:                250m
+      ephemeral-storage:  5Gi
+      memory:             1Gi
+    Liveness:             http-get http://:backend/.backstage/health/v1/liveness delay=0s timeout=4s period=10s #success=1 #failure=3
+    Readiness:            http-get http://:backend/.backstage/health/v1/readiness delay=0s timeout=4s period=10s #success=2 #failure=3
+    Startup:              http-get http://:backend/.backstage/health/v1/liveness delay=30s timeout=4s period=20s #success=1 #failure=3
+    Environment:
+      APP_CONFIG_backend_listen_port:        7007
+      POSTGRES_HOST:                         my-portal-postgresql
+      POSTGRES_PORT:                         5432
+      POSTGRES_USER:                         bn_backstage
+      POSTGRES_PASSWORD:                     <set to the key 'password' in secret 'my-portal-postgresql'>           Optional: false
+      BACKEND_SECRET:                        <set to the key 'backend-secret' in secret 'my-portal-auth'>           Optional: false
+      POSTGRESQL_ADMIN_PASSWORD:             <set to the key 'postgres-password' in secret 'my-portal-postgresql'>  Optional: false
+      ENABLE_AUTH_PROVIDER_MODULE_OVERRIDE:  true
+      SEGMENT_WRITE_KEY:                     uCMHvkR5n5q2v57LNXHwvTYlGV8lqFR9
+      AAP_HOST_URL:                          <set to the key 'aap-host-url' in secret 'secrets-rhaap-portal'>         Optional: false
+      OAUTH_CLIENT_ID:                       <set to the key 'oauth-client-id' in secret 'secrets-rhaap-portal'>      Optional: false
+      OAUTH_CLIENT_SECRET:                   <set to the key 'oauth-client-secret' in secret 'secrets-rhaap-portal'>  Optional: false
+      GITHUB_CLIENT_ID:                      <set to the key 'github-client-id' in secret 'secrets-scm'>              Optional: true
+      GITHUB_CLIENT_SECRET:                  <set to the key 'github-client-secret' in secret 'secrets-scm'>          Optional: true
+      GITLAB_CLIENT_ID:                      <set to the key 'gitlab-client-id' in secret 'secrets-scm'>              Optional: true
+      GITLAB_CLIENT_SECRET:                  <set to the key 'gitlab-client-secret' in secret 'secrets-scm'>          Optional: true
+      AAP_TOKEN:                             <set to the key 'aap-token' in secret 'secrets-rhaap-portal'>            Optional: false
+      GITHUB_TOKEN:                          <set to the key 'github-token' in secret 'secrets-scm'>                  Optional: true
+      GITLAB_TOKEN:                          <set to the key 'gitlab-token' in secret 'secrets-scm'>                  Optional: true
+      CUSTOMER_SUPPORT_URL:                  https://access.redhat.com/support
+    Mounts:
+      /extensions from extensions-catalog (rw)
+      /opt/app-root/src/app-config-from-configmap.yaml from backstage-app-config (rw,path="app-config.yaml")
+      /opt/app-root/src/dynamic-plugins-root from dynamic-plugins-root (rw)
+      /tmp from temp (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-p6gwt (ro)
+  ansible-devtools-server:
+    Container ID:  cri-o://69134cd6679c1f1b481597463494d2d84f14306a93c81b890eaf73d1da3ddf69
+    Image:         registry.redhat.io/ansible-automation-platform-26/ansible-dev-tools-rhel9:latest
+    Image ID:      registry.redhat.io/ansible-automation-platform-26/ansible-dev-tools-rhel9@sha256:417b2cd5d8606cda83728e77b110f1cd8ef3aaeeca0e5cecce3059dba1ee0264
+    Port:          8000/TCP
+    Host Port:     0/TCP
+    Command:
+      adt
+      server
+    State:          Running
+      Started:      Sat, 02 May 2026 22:59:11 +0530
+    Ready:          True
+    Restart Count:  0
+    Environment:    <none>
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-p6gwt (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  dynamic-plugins-root:
+    Type:          EphemeralVolume (an inline specification for a volume that gets created and deleted with the pod)
+    StorageClass:  
+    Volume:        
+    Labels:            <none>
+    Annotations:       <none>
+    Capacity:      
+    Access Modes:  
+    VolumeMode:    Filesystem
+  dynamic-plugins:
+    Type:      ConfigMap (a volume populated by a ConfigMap)
+    Name:      my-portal-dynamic-plugins
+    Optional:  true
+  dynamic-plugins-npmrc:
+    Type:        Secret (a volume populated by a Secret)
+    SecretName:  my-portal-dynamic-plugins-npmrc
+    Optional:    true
+  dynamic-plugins-registry-auth:
+    Type:        Secret (a volume populated by a Secret)
+    SecretName:  my-portal-dynamic-plugins-registry-auth
+    Optional:    true
+  npmcacache:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:     
+    SizeLimit:  <unset>
+  extensions-catalog:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:     
+    SizeLimit:  <unset>
+  temp:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:     
+    SizeLimit:  <unset>
+  backstage-app-config:
+    Type:      ConfigMap (a volume populated by a ConfigMap)
+    Name:      my-portal-rhaap-portal-app-config
+    Optional:  false
+  kube-api-access-p6gwt:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+    ConfigMapName:           openshift-service-ca.crt
+    Optional:                false
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/memory-pressure:NoSchedule op=Exists
+                             node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:
+  Type     Reason                  Age   From                     Message
+  ----     ------                  ----  ----                     -------
+  Warning  FailedScheduling        30m   default-scheduler        0/6 nodes are available: waiting for ephemeral volume controller to create the persistentvolumeclaim "my-portal-rhaap-portal-6966ffdd9f-ttmdl-dynamic-plugins-root". not found
+  Warning  FailedScheduling        30m   default-scheduler        running PreFilter plugin "VolumeBinding": error getting PVC "sagpaul-installer/my-portal-rhaap-portal-6966ffdd9f-ttmdl-dynamic-plugins-root": could not find v1.PersistentVolumeClaim "sagpaul-installer/my-portal-rhaap-portal-6966ffdd9f-ttmdl-dynamic-plugins-root"
+  Normal   Scheduled               30m   default-scheduler        Successfully assigned sagpaul-installer/my-portal-rhaap-portal-6966ffdd9f-ttmdl to ip-10-0-0-7.ap-south-1.compute.internal
+  Normal   SuccessfulAttachVolume  30m   attachdetach-controller  AttachVolume.Attach succeeded for volume "pvc-027e3c2c-fc07-43d8-b051-9850fe162b9d"
+  Normal   AddedInterface          30m   multus                   Add eth0 [10.129.3.130/23] from ovn-kubernetes
+  Normal   Pulled                  30m   kubelet                  Container image "registry.redhat.io/rhdh/rhdh-hub-rhel9:1.9" already present on machine
+  Normal   Created                 30m   kubelet                  Created container: install-dynamic-plugins
+  Normal   Started                 30m   kubelet                  Started container install-dynamic-plugins
+  Normal   Pulled                  27m   kubelet                  Container image "registry.redhat.io/rhdh/rhdh-hub-rhel9:1.9" already present on machine
+  Normal   Created                 27m   kubelet                  Created container: backstage-backend
+  Normal   Started                 27m   kubelet                  Started container backstage-backend
+  Normal   Pulled                  27m   kubelet                  Container image "registry.redhat.io/ansible-automation-platform-26/ansible-dev-tools-rhel9:latest" already present on machine
+  Normal   Created                 27m   kubelet                  Created container: ansible-devtools-server
+  Normal   Started                 27m   kubelet                  Started container ansible-devtools-server

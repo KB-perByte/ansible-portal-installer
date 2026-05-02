@@ -8,6 +8,15 @@ from .exceptions import (
     DeployError,
     ConfigurationError,
     ValidationError,
+    ToolNotFoundError,
+    GitError,
+    ContainerError,
+    OpenShiftError,
+    HelmError,
+    UpgradeError,
+    HealthCheckError,
+    LogCollectionError,
+    TemplateError,
 )
 
 __all__ = [
@@ -18,4 +27,13 @@ __all__ = [
     "DeployError",
     "ConfigurationError",
     "ValidationError",
+    "ToolNotFoundError",
+    "GitError",
+    "ContainerError",
+    "OpenShiftError",
+    "HelmError",
+    "UpgradeError",
+    "HealthCheckError",
+    "LogCollectionError",
+    "TemplateError",
 ]

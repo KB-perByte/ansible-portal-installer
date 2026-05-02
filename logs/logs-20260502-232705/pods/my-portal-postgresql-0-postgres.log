@@ -1,0 +1,13 @@
+pg_ctl: another server might be running; trying to start server anyway
+waiting for server to start....2026-05-02 17:26:21.899 UTC [19] LOG:  redirecting log output to logging collector process
+2026-05-02 17:26:21.899 UTC [19] HINT:  Future log output will appear in directory "log".
+ done
+server started
+/var/run/postgresql:5432 - accepting connections
+=> sourcing /usr/share/container-scripts/postgresql/start/set_passwords.sh ...
+ALTER ROLE
+waiting for server to shut down.... done
+server stopped
+Starting server...
+2026-05-02 17:26:22.395 UTC [1] LOG:  redirecting log output to logging collector process
+2026-05-02 17:26:22.395 UTC [1] HINT:  Future log output will appear in directory "log".

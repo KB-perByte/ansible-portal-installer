@@ -65,3 +65,27 @@ class HelmError(InstallerError):
     """Raised when Helm operation fails."""
 
     pass
+
+
+class UpgradeError(InstallerError):
+    """Raised when upgrade operation fails."""
+
+    pass
+
+
+class HealthCheckError(InstallerError):
+    """Raised when health check fails."""
+
+    pass
+
+
+class LogCollectionError(InstallerError):
+    """Raised when log collection fails."""
+
+    pass
+
+
+class TemplateError(InstallerError):
+    """Raised when template generation fails."""
+
+    pass

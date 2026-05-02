@@ -1,0 +1,11 @@
+USER-SUPPLIED VALUES:
+ansibleGitContents:
+  enabled: true
+  orgs:
+  - name: ansible-collections
+redhat-developer-hub:
+  global:
+    clusterRouterBase: apps.aap-automation-portal-dev.eng.ansible.com
+    imageTagInfo: dev-installer
+    ociPluginImage: quay.io/sagpaul/ansible-portal-plugins
+    pluginMode: oci

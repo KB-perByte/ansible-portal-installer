@@ -1,3 +1,4 @@
+
 """Shell command execution utilities."""
 
 import shutil
@@ -110,3 +111,29 @@ def validate_required_tools(tools: list[str]) -> list[str]:
         if not check_tool_exists(tool):
             missing.append(tool)
     return missing
+
+
+def http_health_check(
+    url: str,
+    timeout: int = 30,
+    expected_status: int = 200,
+) -> bool:
+    """Perform HTTP health check on a URL.
+
+    Args:
+        url: URL to check
+        timeout: Request timeout in seconds
+        expected_status: Expected HTTP status code
+
+    Returns:
+        True if health check passes, False otherwise
+    """
+    try:
+        import urllib.request
+        import urllib.error
+
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return response.status == expected_status
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError):
+        return False

@@ -35,6 +35,11 @@ class InstallContext:
     verification_passed: bool = False
     verification_errors: list[str] = field(default_factory=list)
 
+    # Upgrade state
+    upgrade_completed: bool = False
+    upgraded_image_reference: Optional[str] = None
+    upgrade_rollout_status: Optional[str] = None
+
     def mark_completed(self) -> None:
         """Mark the installation as completed."""
         self.completed_at = datetime.now()

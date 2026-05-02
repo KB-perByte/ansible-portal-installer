@@ -1,17 +1,36 @@
 """Utility functions and helpers."""
 
-from .shell import run_command, check_tool_exists, get_tool_version, ensure_tool_exists, validate_required_tools
+from .shell import (
+    run_command,
+    check_tool_exists,
+    get_tool_version,
+    ensure_tool_exists,
+    validate_required_tools,
+    http_health_check,
+)
 from .git import clone_repo, checkout_branch, get_current_branch
-from .container import build_image, push_image, login_registry, get_container_tool
+from .container import (
+    build_image,
+    push_image,
+    login_registry,
+    get_container_tool,
+    skopeo_inspect,
+)
 from .openshift import (
     oc_login,
     oc_get_route,
     oc_create_secret,
     oc_get_pods,
+    oc_wait_for_pods,
     oc_project_exists,
     oc_create_project,
     oc_use_project,
     oc_secret_exists,
+    oc_get_pod_logs,
+    oc_describe_pod,
+    oc_get_events,
+    oc_rollout_status,
+    oc_get_pod_status,
 )
 from .helm import helm_install, helm_upgrade, helm_uninstall, helm_get_values, helm_status
 
@@ -21,6 +40,7 @@ __all__ = [
     "get_tool_version",
     "ensure_tool_exists",
     "validate_required_tools",
+    "http_health_check",
     "clone_repo",
     "checkout_branch",
     "get_current_branch",
@@ -28,14 +48,21 @@ __all__ = [
     "push_image",
     "login_registry",
     "get_container_tool",
+    "skopeo_inspect",
     "oc_login",
     "oc_get_route",
     "oc_create_secret",
     "oc_get_pods",
+    "oc_wait_for_pods",
     "oc_project_exists",
     "oc_create_project",
     "oc_use_project",
     "oc_secret_exists",
+    "oc_get_pod_logs",
+    "oc_describe_pod",
+    "oc_get_events",
+    "oc_rollout_status",
+    "oc_get_pod_status",
     "helm_install",
     "helm_upgrade",
     "helm_uninstall",

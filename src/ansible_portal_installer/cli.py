@@ -435,6 +435,211 @@ def teardown_command(ctx: click.Context, namespace: Optional[str], release: Opti
         sys.exit(EXIT_ERROR)
 
 
+@cli.command("helm-upgrade")
+@click.option("--plugins-path", type=click.Path(exists=True, path_type=Path), help="Path to rebuild plugins from")
+@click.option("--image-tag", help="Existing image tag to switch to")
+@click.option("--namespace", "-n", help="OpenShift namespace (default: from .env)")
+@click.option("--release", "-r", help="Helm release name (default: from .env)")
+@click.pass_context
+def upgrade_command(
+    ctx: click.Context,
+    plugins_path: Optional[Path],
+    image_tag: Optional[str],
+    namespace: Optional[str],
+    release: Optional[str],
+) -> None:
+    """Upgrade Helm deployment with plugin rebuild or image tag switch.
+
+    Mutually exclusive options:
+      --plugins-path: Rebuild plugins from path and push new OCI image
+      --image-tag: Switch to existing image tag (no rebuild)
+
+    Examples:
+      # Rebuild plugins and upgrade
+      ansible-portal-installer helm-upgrade --plugins-path ~/Work/ansible-portal/ansible-backstage-plugins
+
+      # Switch to existing image tag
+      ansible-portal-installer helm-upgrade --image-tag dev-20260502
+    """
+    try:
+        settings = get_settings()
+        if namespace:
+            settings.openshift_namespace = namespace
+        if release:
+            settings.helm_release_name = release
+
+        settings.verbose = ctx.obj.get("verbose", False)
+        settings.dry_run = ctx.obj.get("dry_run", False)
+
+        # Validate: exactly one of plugins_path or image_tag
+        if not plugins_path and not image_tag:
+            print_error("Must specify either --plugins-path or --image-tag")
+            sys.exit(EXIT_ERROR)
+        if plugins_path and image_tag:
+            print_error("Cannot specify both --plugins-path and --image-tag")
+            sys.exit(EXIT_ERROR)
+
+        validate_all(settings, "helm-upgrade")
+        context = InstallContext()
+
+        if settings.dry_run:
+            print_info("DRY RUN MODE - No changes will be made")
+            if plugins_path:
+                print_info(f"Would rebuild plugins from: {plugins_path}")
+            else:
+                print_info(f"Would switch to image tag: {image_tag}")
+            return
+
+        from .actions.upgrade import helm_upgrade_command
+
+        helm_upgrade_command(settings, context, plugins_path, image_tag)
+        sys.exit(EXIT_SUCCESS)
+
+    except (InstallerError, ConfigurationError) as e:
+        print_error(f"Upgrade failed: {e}")
+        sys.exit(EXIT_ERROR)
+    except KeyboardInterrupt:
+        print_warning("\nUpgrade cancelled by user")
+        sys.exit(EXIT_KEYBOARD_INTERRUPT)
+    except Exception as e:
+        print_error(f"Unexpected error: {e}")
+        if ctx.obj.get("verbose"):
+            console.print_exception()
+        sys.exit(EXIT_ERROR)
+
+
+@cli.command("health-check")
+@click.option("--namespace", "-n", help="OpenShift namespace (default: from .env)")
+@click.option("--release", "-r", help="Helm release name (default: from .env)")
+@click.pass_context
+def health_check_command(
+    ctx: click.Context,
+    namespace: Optional[str],
+    release: Optional[str],
+) -> None:
+    """Run comprehensive health check on deployment.
+
+    Checks:
+      - Pod health (RHDH, PostgreSQL, init containers)
+      - Init container logs (plugin installation success)
+      - Route reachability (HTTP 200)
+      - AAP connectivity (catalog sync status)
+      - Settings management API
+      - Plugin registry (OCI image accessibility)
+
+    Example:
+      ansible-portal-installer health-check
+    """
+    try:
+        settings = get_settings()
+        if namespace:
+            settings.openshift_namespace = namespace
+        if release:
+            settings.helm_release_name = release
+
+        settings.verbose = ctx.obj.get("verbose", False)
+
+        from .actions.health import health_check_command as do_health_check
+
+        results = do_health_check(settings, namespace, release)
+
+        # Exit with error if any critical checks failed
+        critical_checks = [
+            "Pods Running",
+            "Route Exists",
+            "Route Reachable",
+        ]
+        critical_failed = any(
+            not results.get(check, False) for check in critical_checks if check in results
+        )
+
+        sys.exit(EXIT_ERROR if critical_failed else EXIT_SUCCESS)
+
+    except Exception as e:
+        print_error(f"Health check failed: {e}")
+        if ctx.obj.get("verbose"):
+            console.print_exception()
+        sys.exit(EXIT_ERROR)
+
+
+@cli.command("collect-logs")
+@click.option("--output-dir", "-o", type=click.Path(path_type=Path), help="Output directory (default: ./logs)")
+@click.option("--namespace", "-n", help="OpenShift namespace (default: from .env)")
+@click.option("--release", "-r", help="Helm release name (default: from .env)")
+@click.pass_context
+def collect_logs_command(
+    ctx: click.Context,
+    output_dir: Optional[Path],
+    namespace: Optional[str],
+    release: Optional[str],
+) -> None:
+    """Collect logs and diagnostics for troubleshooting.
+
+    Collects:
+      - Pod logs (RHDH hub, PostgreSQL, init-dynamic-plugins, ansible-dev-tools)
+      - Pod descriptions
+      - Namespace events
+      - Helm release status
+
+    Example:
+      ansible-portal-installer collect-logs --output-dir /tmp/portal-logs
+    """
+    try:
+        settings = get_settings()
+        if namespace:
+            settings.openshift_namespace = namespace
+        if release:
+            settings.helm_release_name = release
+
+        settings.verbose = ctx.obj.get("verbose", False)
+
+        from .actions.logs import collect_logs_command as do_collect_logs
+
+        log_dir = do_collect_logs(settings, output_dir)
+
+        print_success(f"Logs collected to: {log_dir}")
+        sys.exit(EXIT_SUCCESS)
+
+    except Exception as e:
+        print_error(f"Log collection failed: {e}")
+        if ctx.obj.get("verbose"):
+            console.print_exception()
+        sys.exit(EXIT_ERROR)
+
+
+@cli.command("generate-config")
+@click.option("--output-dir", "-o", type=click.Path(path_type=Path), help="Output directory (default: ./templates)")
+@click.pass_context
+def generate_config_command(
+    ctx: click.Context,
+    output_dir: Optional[Path],
+) -> None:
+    """Generate configuration templates.
+
+    Generates:
+      - ocp-dev-values.yaml.tmpl (Helm values with placeholders)
+      - ocp-secrets.env.example (Environment variables example)
+      - auth.json.example (Registry auth format)
+
+    Example:
+      ansible-portal-installer generate-config --output-dir ./my-templates
+    """
+    try:
+        settings = get_settings()
+        settings.verbose = ctx.obj.get("verbose", False)
+
+        from .actions.templates import generate_config_command as do_generate_config
+
+        do_generate_config(settings, output_dir)
+        sys.exit(EXIT_SUCCESS)
+
+    except Exception as e:
+        print_error(f"Template generation failed: {e}")
+        if ctx.obj.get("verbose"):
+            console.print_exception()
+        sys.exit(EXIT_ERROR)
+
+
 def main() -> None:
     """Main entry point."""
     try:
