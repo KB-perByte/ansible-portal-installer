@@ -66,7 +66,7 @@ ansible-portal-installer verify
 ### Option 1: Full Automated Deployment
 
 ```bash
-# Run everything: build → publish → deploy
+# Run everything: build -> publish -> deploy
 ansible-portal-installer full-deploy
 ```
 

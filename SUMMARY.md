@@ -85,7 +85,7 @@ ansible-portal-installer/
    - Displays deployment status and next steps
 
 4. **Full Deploy Command**
-   - Runs complete workflow: build → publish → deploy
+   - Runs complete workflow: build -> publish -> deploy
    - Single command for end-to-end deployment
 
 5. **Verify Command**

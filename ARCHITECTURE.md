@@ -85,7 +85,7 @@ ansible_portal_installer/
 
 3. Setup symlink
    ansible-rhdh-plugins/ansible-backstage-plugins
-   → ~/Work/ansible-portal/ansible-backstage-plugins
+   -> ~/Work/ansible-portal/ansible-backstage-plugins
 
 4. Run build script
    ├── cd ansible-rhdh-plugins
@@ -159,15 +159,15 @@ ansible_portal_installer/
 
 ## Configuration System
 
-### Environment Variables → Pydantic Settings
+### Environment Variables -> Pydantic Settings
 
 ```python
 .env file
-   ↓
+   |
 Settings (Pydantic)
-   ↓
+   |
 Validation
-   ↓
+   |
 Used by Actions/Installers
 ```
 
@@ -225,23 +225,23 @@ Used by Actions/Installers
 
 ```
 User Action
-    ↓
+    |
 Try:
     Validate Configuration
-        ↓
+        |
     Execute Operation
-        ↓
+        |
     Update Context
-        ↓
+        |
     Display Success
 Except:
-    ConfigurationError → Show config issues
-    BuildError → Show build failures
-    PublishError → Show registry issues
-    DeployError → Show deployment issues
-    InstallerError → Show general errors
-    KeyboardInterrupt → Show cancellation
-    Exception → Show unexpected error (with stack trace if verbose)
+    ConfigurationError -> Show config issues
+    BuildError -> Show build failures
+    PublishError -> Show registry issues
+    DeployError -> Show deployment issues
+    InstallerError -> Show general errors
+    KeyboardInterrupt -> Show cancellation
+    Exception -> Show unexpected error (with stack trace if verbose)
 ```
 
 ## UI/UX Design

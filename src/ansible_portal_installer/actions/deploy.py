@@ -134,9 +134,9 @@ def create_secrets(settings: Settings, context: InstallContext) -> None:
 
             if auth_json_path.exists():
                 try:
-                    from subprocess import run
+                    from ..utils import run_command
 
-                    run(
+                    run_command(
                         [
                             "oc",
                             "create",
@@ -148,7 +148,6 @@ def create_secrets(settings: Settings, context: InstallContext) -> None:
                             "-n",
                             namespace,
                         ],
-                        check=True,
                     )
                     print_success(f"Created secret: {registry_secret}")
                     context.secrets_created.append(registry_secret)

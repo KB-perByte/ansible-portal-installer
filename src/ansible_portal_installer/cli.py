@@ -191,7 +191,7 @@ def helm_deploy(ctx: click.Context, namespace: Optional[str], release: Optional[
 @click.option("--release", "-r", help="Helm release name (default: from .env)")
 @click.pass_context
 def full_deploy(ctx: click.Context, namespace: Optional[str], release: Optional[str]) -> None:
-    """Run complete workflow: build → publish → deploy."""
+    """Run complete workflow: build -> publish -> deploy."""
     try:
         settings = get_settings()
         if namespace:
@@ -209,7 +209,7 @@ def full_deploy(ctx: click.Context, namespace: Optional[str], release: Optional[
 
         if settings.dry_run:
             print_info("DRY RUN MODE - No changes will be made")
-            print_info("Would execute: build → publish → deploy")
+            print_info("Would execute: build -> publish -> deploy")
             return
 
         # Confirm deployment

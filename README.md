@@ -102,7 +102,7 @@ ansible-portal-installer helm-deploy [--namespace my-namespace] [--release my-po
 
 ### `full-deploy`
 
-Run the complete workflow: build → publish → deploy.
+Run the complete workflow: build -> publish -> deploy.
 
 ```bash
 ansible-portal-installer full-deploy
