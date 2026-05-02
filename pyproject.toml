@@ -1,87 +1,86 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+requires = [
+  "setuptools >= 45",
+  "setuptools_scm[toml] >= 7.0"
+]
 
 [project]
 name = "ansible-portal-installer"
 version = "0.1.0"
-description = "CLI tool for deploying Ansible Automation Portal to OpenShift"
+description = "A text-based user interface (TUI) installer for Ansible Automation Portal"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "Ansible Portal Team"},
+  {name = "Ansible Automation Portal Team", email = "info@ansible.com"}
 ]
-keywords = ["ansible", "openshift", "kubernetes", "backstage", "rhdh"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Build Tools",
+  "Topic :: System :: Installation/Setup",
 ]
+keywords = ["ansible", "portal", "installer", "automation"]
 
 dependencies = [
-    "click>=8.1.0",
-    "pydantic>=2.0.0",
-    "pydantic-settings>=2.0.0",
-    "kubernetes>=28.0.0",
-    "pyyaml>=6.0",
-    "rich>=13.0.0",
-    "httpx>=0.24.0",
-    "bcrypt>=4.0.0",
+  "click>=8.1.0",
+  "rich>=13.0.0",
+  "python-dotenv>=1.0.0",
+  "pydantic>=2.0.0",
+  "pydantic-settings>=2.0.0",
+  "PyYAML>=6.0",
+  "kubernetes>=28.0.0",
+  "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "pytest-mock>=3.10.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0",
-    "types-PyYAML>=6.0.0",
+  "pytest>=7.0.0",
+  "pytest-cov>=4.0.0",
+  "black>=23.0.0",
+  "ruff>=0.1.0",
+  "mypy>=1.0.0",
+  "types-PyYAML",
+  "types-requests",
 ]
 
 [project.scripts]
-ansible-portal-installer = "ansible_portal_installer.cli:cli"
+ansible-portal-installer = "ansible_portal_installer.cli:main"
+portal-installer = "ansible_portal_installer.cli:main"
 
 [project.urls]
-"Homepage" = "https://github.com/ansible/ansible-rhdh-plugins"
-"Bug Tracker" = "https://github.com/ansible/ansible-rhdh-plugins/issues"
-"Documentation" = "https://github.com/ansible/ansible-rhdh-plugins/tree/main/docs"
+Homepage = "https://github.com/ansible/ansible-portal-installer"
+Repository = "https://github.com/ansible/ansible-portal-installer"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["ansible_portal_installer*"]
+where = ["src"]
 
 [tool.black]
 line-length = 100
-target-version = ["py310", "py311", "py312"]
+target-version = ["py310"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
-ignore = ["E501"]  # Line too long (handled by black)
+select = ["E", "F", "W", "I", "N", "UP", "ANN", "B", "A", "COM", "C4", "DTZ", "ISC", "ICN", "G", "PIE", "T20", "PT", "Q", "RET", "SIM", "ARG", "PTH", "PD", "PL", "NPY", "RUF"]
+ignore = ["ANN101", "ANN102", "ANN401"]
 
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = ["kubernetes", "kubernetes.*"]
-ignore_missing_imports = true
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = "-v --cov=ansible_portal_installer --cov-report=term-missing"
+check_untyped_defs = true

@@ -1,392 +1,322 @@
-# ansible-portal-installer Architecture
+# Architecture Overview
 
-## Overview
-
-The `ansible-portal-installer` is a Python CLI tool that deploys the Ansible Automation Portal using a **pluggable backend architecture**. This design allows for multiple deployment strategies while maintaining a consistent user interface.
-
-## Design Philosophy
-
-1. **Backend Independence**: Each deployment backend is self-contained
-2. **Single Responsibility**: Backends focus only on their deployment strategy
-3. **Interface Consistency**: All backends implement the same abstract interface
-4. **Easy Extension**: New backends can be added without modifying existing code
-5. **Graceful Degradation**: Unimplemented backends provide clear error messages
-
-## Project Structure
+## System Architecture
 
 ```
-ansible-portal-installer/
-├── pyproject.toml                   # Project metadata & dependencies
-├── README.md                        # User-facing documentation
-├── ARCHITECTURE.md                  # This file
-├── ansible_portal_installer/
-│   ├── __init__.py                  # Package version
-│   ├── cli.py                       # Main CLI entry point
-│   │
-│   ├── config.py                    # Pydantic configuration models
-│   │   ├── RegistryConfig           # Container registry settings
-│   │   ├── AAPConfig                # AAP connection settings
-│   │   ├── SCMConfig                # GitHub/GitLab settings
-│   │   ├── DeploymentConfig         # Deployment parameters
-│   │   └── PortalInstallerSettings  # Global settings from env vars
-│   │
-│   ├── backends/                    # Pluggable deployment backends
-│   │   ├── README.md                # Backend development guide
-│   │   ├── __init__.py              # BackendFactory & BackendType
-│   │   ├── base.py                  # Abstract base classes
-│   │   │   ├── DeploymentBackend    # Interface for deployment ops
-│   │   │   └── BuildBackend         # Interface for build ops
-│   │   │
-│   │   ├── helm/                    # Helm backend (Kubernetes/OpenShift)
-│   │   │   ├── __init__.py
-│   │   │   ├── client.py            # Helm CLI wrapper
-│   │   │   └── deployer.py          # HelmDeployer implementation
-│   │   │
-│   │   ├── operator/                # Future: Operator backend
-│   │   │   └── deployer.py          # OperatorDeployer (not implemented)
-│   │   │
-│   │   └── rhel/                    # Future: RHEL package backend
-│   │       └── deployer.py          # RHELDeployer (not implemented)
-│   │
-│   ├── commands/                    # CLI command implementations
-│   │   ├── __init__.py
-│   │   ├── build.py                 # Build plugin OCI image
-│   │   ├── deploy.py                # Deploy portal (backend-aware)
-│   │   ├── upgrade.py               # Upgrade deployment (backend-aware)
-│   │   ├── validate.py              # Health checks (backend-aware)
-│   │   ├── collect_logs.py          # Diagnostic logs (backend-aware)
-│   │   └── teardown.py              # Remove deployment (backend-aware)
-│   │
-│   ├── k8s.py                       # Kubernetes client wrappers
-│   │   ├── KubernetesClient         # Python K8s API wrapper
-│   │   └── OpenShiftClient          # oc CLI wrapper
-│   │
-│   ├── registry.py                  # OCI registry client
-│   │   └── RegistryClient           # Image push/pull operations
-│   │
-│   └── validation.py                # Health check system
-│       └── HealthChecker            # Validation logic
+┌─────────────────────────────────────────────────────────────────┐
+│                  Ansible Portal Installer                        │
+│                         (CLI/TUI)                                │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+        ▼                     ▼                     ▼
+┌──────────────┐      ┌──────────────┐     ┌──────────────┐
+│   Build      │      │   Publish    │     │   Deploy     │
+│   Actions    │      │   Actions    │     │   Actions    │
+└──────────────┘      └──────────────┘     └──────────────┘
+        │                     │                     │
+        ▼                     ▼                     ▼
+┌──────────────┐      ┌──────────────┐     ┌──────────────┐
+│   Plugins    │──────▶│  Container   │──────▶│  OpenShift  │
+│   Source     │       │  Registry    │       │  Cluster    │
+└──────────────┘      └──────────────┘     └──────────────┘
+```
+
+## Module Structure
+
+```
+ansible_portal_installer/
 │
-└── tests/                           # Test suite
-    └── test_config.py               # Configuration validation tests
-```
-
-## Core Abstractions
-
-### DeploymentBackend Interface
-
-All deployment backends implement this interface:
-
-```python
-class DeploymentBackend(ABC):
-    @abstractmethod
-    def deploy(config: DeploymentConfig, skip_build: bool) -> Dict[str, Any]:
-        """Deploy the portal. Returns deployment details."""
-
-    @abstractmethod
-    def upgrade(namespace: str, release_name: str, **kwargs) -> None:
-        """Upgrade existing deployment."""
-
-    @abstractmethod
-    def teardown(namespace: str, release_name: str, clean_data: bool) -> None:
-        """Remove deployment."""
-
-    @abstractmethod
-    def get_status(namespace: str, release_name: str) -> Optional[Dict]:
-        """Get deployment status."""
-
-    @abstractmethod
-    def get_values(namespace: str, release_name: str) -> Optional[Dict]:
-        """Get configuration values."""
-
-    @abstractmethod
-    def validate_deployment(namespace: str, ...) -> bool:
-        """Run health checks."""
-
-    @abstractmethod
-    def collect_logs(namespace: str, output_dir: Path, ...) -> None:
-        """Collect diagnostic logs."""
-```
-
-### BackendFactory
-
-The factory pattern provides backend selection:
-
-```python
-# Create backend from type
-deployer = BackendFactory.create("helm")
-
-# List all backends
-BackendFactory.list_backends()
-# => ['helm', 'operator', 'rhel']
-
-# List implemented backends
-BackendFactory.list_implemented_backends()
-# => ['helm']
+├── cli.py                    # Click-based CLI entry point
+│   ├── Commands:
+│   │   ├── build              # Build plugins
+│   │   ├── publish            # Publish container image
+│   │   ├── helm-deploy        # Deploy with Helm
+│   │   ├── full-deploy        # Complete workflow
+│   │   ├── verify             # Verify installation
+│   │   ├── status             # Check deployment status
+│   │   └── cleanup            # Remove deployment
+│
+├── config/                   # Configuration management
+│   ├── settings.py             # Pydantic settings (reads .env)
+│   └── validation.py           # Configuration validation
+│
+├── core/                     # Core components
+│   ├── context.py              # Installation state tracking
+│   └── exceptions.py           # Custom exceptions
+│
+├── actions/                  # Discrete operations
+│   ├── build.py                # Plugin build logic
+│   ├── publish.py              # Container publish logic
+│   ├── deploy.py               # Deployment logic
+│   └── verify.py               # Verification logic
+│
+├── installers/               # Installation strategies
+│   ├── base.py                 # Base installer interface
+│   ├── helm.py                 # Helm installer (implemented)
+│   ├── rhel.py                 # RHEL installer (future)
+│   └── operator.py             # Operator installer (future)
+│
+├── ui/                       # User interface components
+│   ├── console.py              # Rich console wrapper
+│   ├── progress.py             # Progress bars/spinners
+│   └── prompts.py              # Interactive prompts
+│
+└── utils/                    # Utility functions
+    ├── shell.py                # Command execution
+    ├── git.py                  # Git operations
+    ├── container.py            # Podman/Docker operations
+    ├── openshift.py            # OpenShift CLI operations
+    └── helm.py                 # Helm operations
 ```
 
 ## Data Flow
 
-### Deployment Flow
+### Build Flow
 
 ```
-User Input (CLI args + env vars)
-    ↓
-Click Command Parsing
-    ↓
-Configuration Objects (Pydantic models)
-    ├── DeploymentConfig
-    ├── AAPConfig
-    ├── SCMConfig
-    └── RegistryConfig
-    ↓
-BackendFactory.create(backend_type)
-    ↓
-Backend.deploy(config)
-    ├── Validate prerequisites
-    ├── Build plugins (if needed)
-    ├── Create secrets
-    ├── Deploy via backend-specific method
-    └── Return deployment details
-    ↓
-Display results to user
+1. User runs: ansible-portal-installer build
+
+2. Load configuration from .env
+   ├── Validate paths exist
+   ├── Check Node.js version
+   └── Verify build script
+
+3. Setup symlink
+   ansible-rhdh-plugins/ansible-backstage-plugins
+   → ~/Work/ansible-portal/ansible-backstage-plugins
+
+4. Run build script
+   ├── cd ansible-rhdh-plugins
+   ├── ./build.sh
+   └── Generates: dynamic-plugins/
+
+5. Update context
+   ├── Mark build completed
+   ├── Track plugins built
+   └── Store output directory
 ```
 
-### Backend Selection Priority
+### Publish Flow
 
-1. CLI flag: `--backend helm`
-2. Environment variable: `DEPLOYMENT_BACKEND=helm`
-3. Default: `helm`
+```
+1. User runs: ansible-portal-installer publish
 
-## Supported Backends
+2. Build plugins (if not already built)
 
-### Helm Backend (Implemented)
+3. Authenticate with registry
+   podman login quay.io
 
-**Target**: Kubernetes/OpenShift clusters  
-**Method**: Helm charts with OCI plugin images  
-**Status**: ✅ Fully implemented
+4. Build container image
+   ├── cd dynamic-plugins/
+   ├── podman build -f Containerfile
+   └── Tag: quay.io/user/ansible-portal-plugins:dev-YYYYMMDD
 
-**Features**:
-- OCI plugin image building
-- OpenShift internal registry support
-- Helm chart dependency management
-- Pod/route/service health checks
-- Comprehensive log collection
+5. Push to registry
+   podman push quay.io/user/ansible-portal-plugins:dev-YYYYMMDD
 
-**Usage**:
-```bash
-ansible-portal-installer deploy \
-  --backend helm \
-  --namespace my-ns \
-  --aap-host https://aap.example.com \
-  --aap-token <token> \
-  --oauth-client-id <id> \
-  --oauth-client-secret <secret>
+6. Update context
+   ├── Mark publish completed
+   └── Store image reference
 ```
 
-### Operator Backend (Planned)
+### Deploy Flow
 
-**Target**: OpenShift clusters with OLM  
-**Method**: Custom Resources + Operator  
-**Status**: ⏳ Not yet implemented
+```
+1. User runs: ansible-portal-installer helm-deploy
 
-**Planned Features**:
-- Operator Lifecycle Manager integration
-- Custom Resource-based configuration
-- Operator-managed upgrades
-- OpenShift-native deployment
+2. Publish image (if OCI mode and not already published)
 
-### RHEL Backend (Planned)
+3. Connect to OpenShift
+   oc login --server=... --token=...
 
-**Target**: Traditional RHEL/Fedora servers  
-**Method**: RPM packages + systemd services  
-**Status**: ⏳ Not yet implemented
+4. Setup namespace
+   ├── Check if exists
+   ├── Create if needed
+   └── Switch to namespace
 
-**Planned Features**:
-- RPM package installation
-- systemd service management
-- Non-containerized deployment
-- Traditional server architecture
+5. Create secrets
+   ├── secrets-rhaap-portal (AAP credentials)
+   ├── secrets-scm (GitHub credentials)
+   └── registry pull secret (if OCI mode)
+
+6. Deploy with Helm
+   ├── Build Helm values
+   ├── helm upgrade --install
+   └── Wait for deployment
+
+7. Verify deployment
+   ├── Check pods status
+   ├── Get route URL
+   └── Display next steps
+
+8. Update context
+   ├── Mark deploy completed
+   ├── Store release name
+   └── Store portal route
+```
 
 ## Configuration System
 
-### Pydantic Models
-
-All configuration uses Pydantic for type safety and validation:
+### Environment Variables → Pydantic Settings
 
 ```python
-class DeploymentConfig(BaseModel):
-    namespace: str                      # Target namespace/location
-    release_name: str                   # Deployment identifier
-    backend: str                        # Backend type
-    chart_path: Path                    # Config path
-    plugins_path: Path                  # Plugin source
-    registry: Optional[RegistryConfig]  # Registry config
-    aap: Optional[AAPConfig]            # AAP config
-    scm: Optional[SCMConfig]            # SCM config
-    # ... more fields
+.env file
+   ↓
+Settings (Pydantic)
+   ↓
+Validation
+   ↓
+Used by Actions/Installers
 ```
 
-### Environment Variable Loading
+**Benefits:**
+- Type safety with Pydantic
+- Automatic validation
+- Sensible defaults
+- Environment variable precedence
 
-Settings are automatically loaded from:
+## Extensibility Design
 
-1. `.env` file in current directory
-2. System environment variables
-3. CLI flags (highest priority)
+### Adding New Installation Type (e.g., RHEL)
 
-Example `.env`:
-```bash
-DEPLOYMENT_BACKEND=helm
-OCP_NAMESPACE=my-portal-dev
-AAP_HOST_URL=https://aap.example.com
-AAP_TOKEN=my-token
-OAUTH_CLIENT_ID=my-client-id
-OAUTH_CLIENT_SECRET=my-secret
-```
-
-## Extension Points
-
-### Adding a New Backend
-
-1. **Create backend directory**:
-   ```bash
-   mkdir -p ansible_portal_installer/backends/mybackend
-   ```
-
-2. **Implement DeploymentBackend**:
+1. **Create installer class**:
    ```python
-   # ansible_portal_installer/backends/mybackend/deployer.py
-   from ..base import DeploymentBackend
-   
-   class MyBackendDeployer(DeploymentBackend):
-       def deploy(self, config, skip_build):
-           # Implementation
+   # src/ansible_portal_installer/installers/rhel.py
+   class RHELInstaller(BaseInstaller):
+       def install(self) -> None:
+           # RHEL-specific installation logic
            pass
-       # ... implement other methods
    ```
 
-3. **Register in BackendFactory**:
+2. **Add CLI command**:
    ```python
-   # backends/__init__.py
-   class BackendType(str, Enum):
-       MYBACKEND = "mybackend"
-   
-   class BackendFactory:
-       @staticmethod
-       def create(backend_type):
-           if backend_type == BackendType.MYBACKEND:
-               from .mybackend import MyBackendDeployer
-               return MyBackendDeployer()
+   # src/ansible_portal_installer/cli.py
+   @cli.command()
+   def rhel_deploy():
+       installer = RHELInstaller(settings, context)
+       installer.install()
    ```
 
-4. **No changes needed** to commands or CLI!
+3. **Add configuration** (if needed):
+   ```python
+   # src/ansible_portal_installer/config/settings.py
+   rhel_specific_setting: str = Field(...)
+   ```
 
-### Adding a New Command
+### Adding New Action
 
-Commands use backends via the factory:
+1. **Create action module**:
+   ```python
+   # src/ansible_portal_installer/actions/custom.py
+   def custom_action(settings: Settings, context: InstallContext) -> None:
+       # Action logic
+       pass
+   ```
 
-```python
-@click.command()
-@click.option("--backend", type=click.Choice([...]))
-def my_command(backend: str, ...):
-    deployer = BackendFactory.create(backend)
-    deployer.my_operation(...)
+2. **Use in CLI or installer**:
+   ```python
+   from .actions import custom_action
+   custom_action(settings, context)
+   ```
+
+## Error Handling Strategy
+
+```
+User Action
+    ↓
+Try:
+    Validate Configuration
+        ↓
+    Execute Operation
+        ↓
+    Update Context
+        ↓
+    Display Success
+Except:
+    ConfigurationError → Show config issues
+    BuildError → Show build failures
+    PublishError → Show registry issues
+    DeployError → Show deployment issues
+    InstallerError → Show general errors
+    KeyboardInterrupt → Show cancellation
+    Exception → Show unexpected error (with stack trace if verbose)
 ```
 
-## Testing Strategy
+## UI/UX Design
 
-### Unit Tests
-- Configuration validation
-- Backend factory
-- Individual backend methods (mocked)
+### Progress Tracking
 
-### Integration Tests
-- Full deployment workflows
-- Health check systems
-- Log collection
+- **Spinners** for indeterminate operations
+- **Progress bars** for multi-step operations
+- **Status icons** (✓, ✗, ⚠, ℹ) for clarity
+- **Colors**:
+  - Green for success
+  - Red for errors
+  - Yellow for warnings
+  - Blue for info
 
-### Backend-Specific Tests
-- Each backend has its own test suite
-- Mock external dependencies (K8s API, Helm CLI)
+### Interactive Prompts
 
-## Dependencies
+- **Confirmations** for destructive operations
+- **Skip confirmations** with `--yes` flag or `SKIP_CONFIRMATIONS=true`
+- **Dry run mode** to preview actions
 
-### Core
-- **click**: CLI framework
-- **rich**: Terminal UI/progress
-- **pydantic**: Configuration models
-- **pyyaml**: YAML parsing
+### Output Formatting
 
-### Kubernetes/OpenShift
-- **kubernetes**: Python K8s API client
-- **httpx**: HTTP client (registry ops)
+- **Headers** for sections
+- **Panels** for important information
+- **Tables** for status and configuration
+- **Clean separation** between operations
 
-### Security
-- **bcrypt**: Password hashing
+## Testing Strategy (Future)
 
-### Build (Dev)
-- **pytest**: Testing
-- **mypy**: Type checking
-- **ruff**: Linting
-- **black**: Code formatting
+```
+tests/
+├── unit/
+│   ├── test_config.py       # Configuration tests
+│   ├── test_utils.py        # Utility function tests
+│   └── test_actions.py      # Action logic tests
+│
+├── integration/
+│   ├── test_build.py        # End-to-end build tests
+│   ├── test_publish.py      # Registry integration tests
+│   └── test_deploy.py       # Deployment tests (requires cluster)
+│
+└── fixtures/
+    ├── .env.test            # Test environment
+    └── mock_responses.py    # Mock API responses
+```
 
-## Design Decisions
+## Security Considerations
 
-### Why Pluggable Backends?
+1. **Secrets Management**:
+   - Never log sensitive values
+   - Use environment variables
+   - Support for `.env` files (gitignored)
 
-**Problem**: Different deployment targets (K8s, Operators, RHEL) require different approaches.
+2. **Credential Handling**:
+   - Tokens masked in output
+   - Registry authentication ephemeral
+   - OpenShift token never persisted
 
-**Solution**: Abstract interface + factory pattern allows:
-- Adding new backends without modifying existing code
-- Testing backends in isolation
-- Swapping backends via configuration
-- Backend-specific optimizations
+3. **Validation**:
+   - Validate all inputs
+   - Check file paths before operations
+   - Confirm destructive actions
 
-### Why Pydantic for Config?
+## Performance Considerations
 
-- Type safety with runtime validation
-- Automatic env var loading
-- Clear error messages for invalid config
-- Documentation via field descriptions
+1. **Caching**:
+   - Settings cached with `@lru_cache`
+   - Container tool auto-detection cached
 
-### Why Direct K8s API vs oc CLI?
+2. **Parallel Operations**:
+   - Future: parallel plugin builds
+   - Future: concurrent image pushes
 
-- **Structured data**: Parse JSON, not text
-- **Type safety**: Python objects, not strings
-- **Error handling**: Exceptions, not exit codes
-- **Performance**: No subprocess overhead
-
-(Still use `oc` for OpenShift-specific operations like routes)
-
-## Future Enhancements
-
-### Planned Features
-- **Multi-backend deployments**: Deploy to multiple targets simultaneously
-- **Backend migration**: Migrate from Helm to Operator
-- **Custom backends**: Plugin system for third-party backends
-- **Interactive wizard**: Guided deployment setup
-- **Configuration templates**: Pre-configured deployment profiles
-
-### Extensibility
-- Backend-specific health checks
-- Backend-specific log formats
-- Backend-specific upgrade strategies
-- Backend-specific validation rules
-
-## Contributing
-
-When adding new features:
-
-1. **Backend-agnostic features**: Add to `DeploymentBackend` interface
-2. **Backend-specific features**: Add to specific backend implementations
-3. **New backends**: Follow the extension guide in `backends/README.md`
-4. **Tests**: Add tests for new functionality
-5. **Documentation**: Update relevant docs (README, ARCHITECTURE, etc.)
-
-## Resources
-
-- [README.md](README.md) - User documentation
-- [backends/README.md](ansible_portal_installer/backends/README.md) - Backend development guide
-- [config.py](ansible_portal_installer/config.py) - Configuration reference
-- [GitHub Repository](https://github.com/KB-perByte/ansible-portal-installer)
+3. **Resource Management**:
+   - Stream output for long operations
+   - Clean up temporary resources
+   - Reuse connections where possible
