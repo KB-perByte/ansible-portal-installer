@@ -45,22 +45,21 @@ vim .env
 ansible-portal-installer
 
 # Or specific commands
-ansible-portal-installer build
-ansible-portal-installer publish
-ansible-portal-installer helm-deploy
-
-# Full workflow
-ansible-portal-installer full-deploy
+ansible-portal-installer plugins build
+ansible-portal-installer plugins publish
+ansible-portal-installer helm deploy
 ```
 
 ## Commands
 
-### `build`
+### Plugin Commands (`plugins`)
+
+#### `plugins build`
 
 Build dynamic plugins from source.
 
 ```bash
-ansible-portal-installer build [--type portal|platform|all]
+ansible-portal-installer plugins build [--type portal|platform|all]
 ```
 
 **What it does:**
@@ -69,12 +68,12 @@ ansible-portal-installer build [--type portal|platform|all]
 - Executes `build.sh` to generate dynamic plugins
 - Validates plugin output in `dynamic-plugins/` directory
 
-### `publish`
+#### `plugins publish`
 
 Build and push plugin container image to registry.
 
 ```bash
-ansible-portal-installer publish [--registry quay.io] [--tag dev-latest]
+ansible-portal-installer plugins publish [--registry quay.io] [--tag dev-latest]
 ```
 
 **What it does:**
@@ -84,12 +83,14 @@ ansible-portal-installer publish [--registry quay.io] [--tag dev-latest]
 - Pushes image to registry
 - Outputs the full image reference
 
-### `helm-deploy`
+### Helm Commands (`helm`)
+
+#### `helm deploy`
 
 Deploy Ansible Portal to OpenShift using Helm.
 
 ```bash
-ansible-portal-installer helm-deploy [--namespace my-namespace] [--release my-portal]
+ansible-portal-installer helm deploy [--namespace my-namespace] [--release my-portal]
 ```
 
 **What it does:**
@@ -100,36 +101,22 @@ ansible-portal-installer helm-deploy [--namespace my-namespace] [--release my-po
 - Verifies pod status and routes
 - Displays portal URL and next steps
 
-### `full-deploy`
+### Deployment Commands (`deployment`)
 
-Run the complete workflow: build -> publish -> deploy.
-
-```bash
-ansible-portal-installer full-deploy
-```
-
-### `verify`
+#### `deployment verify`
 
 Verify installation and configuration.
 
 ```bash
-ansible-portal-installer verify
+ansible-portal-installer deployment verify
 ```
 
-### `status`
+#### `deployment status`
 
 Check current deployment status.
 
 ```bash
-ansible-portal-installer status [--namespace my-namespace]
-```
-
-### `cleanup`
-
-Clean up deployment and resources.
-
-```bash
-ansible-portal-installer cleanup [--namespace my-namespace] [--release my-portal]
+ansible-portal-installer deployment status [--namespace my-namespace]
 ```
 
 ## Configuration

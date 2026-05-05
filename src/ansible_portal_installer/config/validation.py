@@ -123,7 +123,7 @@ def validate_all(settings: Settings, operation: str) -> None:
 
     Args:
         settings: Application settings
-        operation: Operation to validate for (build, publish, deploy, full-deploy)
+        operation: Operation to validate for (build, publish, deploy, helm-deploy, helm-upgrade)
 
     Raises:
         ConfigurationError: If configuration is invalid
@@ -135,7 +135,5 @@ def validate_all(settings: Settings, operation: str) -> None:
         validate_publish_config(settings)
     elif operation in ("deploy", "helm-deploy"):
         validate_deploy_config(settings)
-    elif operation == "full-deploy":
-        validate_build_config(settings)
-        validate_publish_config(settings)
+    elif operation == "helm-upgrade":
         validate_deploy_config(settings)

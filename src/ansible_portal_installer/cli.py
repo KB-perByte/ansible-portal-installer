@@ -45,7 +45,16 @@ def cli(ctx: click.Context, verbose: bool, dry_run: bool) -> None:
     ctx.obj["dry_run"] = dry_run
 
 
-@cli.command()
+# ============================================================================
+# PLUGINS GROUP
+# ============================================================================
+@cli.group()
+def plugins() -> None:
+    """Plugin build and publish operations."""
+    pass
+
+
+@plugins.command()
 @click.option("--type", "build_type", type=click.Choice(["portal", "platform", "all"]), help="Build type")
 @click.pass_context
 def build(ctx: click.Context, build_type: Optional[str]) -> None:
@@ -87,7 +96,7 @@ def build(ctx: click.Context, build_type: Optional[str]) -> None:
         sys.exit(EXIT_ERROR)
 
 
-@cli.command()
+@plugins.command()
 @click.option("--registry", help="Container registry (default: from .env)")
 @click.option("--tag", help="Image tag (default: dev-YYYYMMDD)")
 @click.option("--skip-build", is_flag=True, help="Skip building plugins first")
@@ -133,12 +142,21 @@ def publish(ctx: click.Context, registry: Optional[str], tag: Optional[str], ski
         sys.exit(EXIT_ERROR)
 
 
-@cli.command()
+# ============================================================================
+# HELM GROUP
+# ============================================================================
+@cli.group()
+def helm() -> None:
+    """Helm deployment operations."""
+    pass
+
+
+@helm.command()
 @click.option("--namespace", "-n", help="OpenShift namespace (default: from .env)")
 @click.option("--release", "-r", help="Helm release name (default: from .env)")
 @click.option("--skip-publish", is_flag=True, help="Skip publishing image first (OCI mode)")
 @click.pass_context
-def helm_deploy(ctx: click.Context, namespace: Optional[str], release: Optional[str], skip_publish: bool) -> None:
+def deploy(ctx: click.Context, namespace: Optional[str], release: Optional[str], skip_publish: bool) -> None:
     """Deploy Ansible Portal to OpenShift using Helm."""
     try:
         settings = get_settings()
@@ -186,82 +204,16 @@ def helm_deploy(ctx: click.Context, namespace: Optional[str], release: Optional[
         sys.exit(EXIT_ERROR)
 
 
-@cli.command()
-@click.option("--namespace", "-n", help="OpenShift namespace (default: from .env)")
-@click.option("--release", "-r", help="Helm release name (default: from .env)")
-@click.pass_context
-def full_deploy(ctx: click.Context, namespace: Optional[str], release: Optional[str]) -> None:
-    """Run complete workflow: build -> publish -> deploy."""
-    try:
-        settings = get_settings()
-        if namespace:
-            settings.openshift_namespace = namespace
-        if release:
-            settings.helm_release_name = release
-
-        settings.verbose = ctx.obj.get("verbose", False)
-        settings.dry_run = ctx.obj.get("dry_run", False)
-
-        # Validate configuration
-        validate_all(settings, "full-deploy")
-
-        context = InstallContext()
-
-        if settings.dry_run:
-            print_info("DRY RUN MODE - No changes will be made")
-            print_info("Would execute: build -> publish -> deploy")
-            return
-
-        # Confirm deployment
-        if not settings.skip_confirmations:
-            if not confirm("Run complete deployment workflow?"):
-                print_warning("Deployment cancelled")
-                return
-
-        # Execute workflow
-        print_header("Full Deployment Workflow")
-        console.print()
-
-        # Step 1: Build
-        build_plugins(settings, context)
-        console.print()
-
-        # Step 2: Publish
-        publish_image(settings, context, build_first=False)
-        console.print()
-
-        # Step 3: Deploy
-        deploy_helm(settings, context, publish_first=False)
-        console.print()
-
-        # Summary
-        print_panel(
-            f"""
-[bold green]✓[/bold green] Build completed
-[bold green]✓[/bold green] Image published: {context.image_reference}
-[bold green]✓[/bold green] Deployed to: {settings.openshift_namespace}
-[bold green]✓[/bold green] Portal URL: {context.portal_route or 'Pending'}
-""",
-            title="Deployment Summary",
-            style="green",
-        )
-
-        sys.exit(EXIT_SUCCESS)
-
-    except (InstallerError, ConfigurationError) as e:
-        print_error(f"Deployment failed: {e}")
-        sys.exit(EXIT_ERROR)
-    except KeyboardInterrupt:
-        print_warning("\nOperation cancelled by user")
-        sys.exit(EXIT_KEYBOARD_INTERRUPT)
-    except Exception as e:
-        print_error(f"Unexpected error: {e}")
-        if ctx.obj.get("verbose"):
-            console.print_exception()
-        sys.exit(EXIT_ERROR)
+# ============================================================================
+# DEPLOYMENT GROUP
+# ============================================================================
+@cli.group()
+def deployment() -> None:
+    """Deployment status and verification."""
+    pass
 
 
-@cli.command()
+@deployment.command()
 @click.pass_context
 def verify(ctx: click.Context) -> None:
     """Verify installation and configuration."""
@@ -291,7 +243,7 @@ def verify(ctx: click.Context) -> None:
         sys.exit(EXIT_ERROR)
 
 
-@cli.command()
+@deployment.command()
 @click.option("--namespace", "-n", help="OpenShift namespace (default: from .env)")
 @click.option("--release", "-r", help="Helm release name (default: from .env)")
 @click.pass_context
@@ -319,50 +271,14 @@ def status(ctx: click.Context, namespace: Optional[str], release: Optional[str])
         sys.exit(EXIT_ERROR)
 
 
-@cli.command()
-@click.option("--namespace", "-n", help="OpenShift namespace")
-@click.option("--release", "-r", help="Helm release name")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
-@click.pass_context
-def cleanup(ctx: click.Context, namespace: Optional[str], release: Optional[str], yes: bool) -> None:
-    """Clean up deployment and resources."""
-    try:
-        settings = get_settings()
-        if namespace:
-            settings.openshift_namespace = namespace
-        if release:
-            settings.helm_release_name = release
-
-        settings.verbose = ctx.obj.get("verbose", False)
-
-        # Confirm cleanup
-        if not yes:
-            if not confirm(f"Uninstall release '{settings.helm_release_name}' from '{settings.openshift_namespace}'?"):
-                print_warning("Cleanup cancelled")
-                return
-
-        context = InstallContext()
-        installer = HelmInstaller(settings, context)
-        installer.uninstall()
-
-        print_success("Cleanup completed successfully!")
-        sys.exit(EXIT_SUCCESS)
-
-    except Exception as e:
-        print_error(f"Cleanup failed: {e}")
-        if ctx.obj.get("verbose"):
-            console.print_exception()
-        sys.exit(EXIT_ERROR)
-
-
-@cli.command("helm-teardown")
+@helm.command()
 @click.option("--namespace", "-n", help="OpenShift namespace (default: from .env)")
 @click.option("--release", "-r", help="Helm release name (default: from .env)")
 @click.option("--remove-secrets", is_flag=True, help="Delete secrets (secrets-rhaap-portal, secrets-scm, registry-auth)")
 @click.option("--remove-namespace", is_flag=True, help="Delete the entire namespace/project (DESTRUCTIVE)")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
 @click.pass_context
-def teardown_command(ctx: click.Context, namespace: Optional[str], release: Optional[str], remove_secrets: bool, remove_namespace: bool, yes: bool) -> None:
+def teardown(ctx: click.Context, namespace: Optional[str], release: Optional[str], remove_secrets: bool, remove_namespace: bool, yes: bool) -> None:
     """Teardown Helm deployment with optional cleanup of secrets and namespace.
 
     This follows the cleanup process from the Helm chart developer guide:
@@ -372,13 +288,13 @@ def teardown_command(ctx: click.Context, namespace: Optional[str], release: Opti
 
     Examples:
       # Basic teardown (uninstall Helm release only)
-      ansible-portal-installer helm-teardown
+      ansible-portal-installer helm teardown
 
       # Teardown and remove secrets
-      ansible-portal-installer helm-teardown --remove-secrets
+      ansible-portal-installer helm teardown --remove-secrets
 
       # Complete cleanup (remove everything)
-      ansible-portal-installer helm-teardown --remove-secrets --remove-namespace
+      ansible-portal-installer helm teardown --remove-secrets --remove-namespace
     """
     try:
         settings = get_settings()
@@ -435,13 +351,13 @@ def teardown_command(ctx: click.Context, namespace: Optional[str], release: Opti
         sys.exit(EXIT_ERROR)
 
 
-@cli.command("helm-upgrade")
+@helm.command()
 @click.option("--plugins-path", type=click.Path(exists=True, path_type=Path), help="Path to rebuild plugins from")
 @click.option("--image-tag", help="Existing image tag to switch to")
 @click.option("--namespace", "-n", help="OpenShift namespace (default: from .env)")
 @click.option("--release", "-r", help="Helm release name (default: from .env)")
 @click.pass_context
-def upgrade_command(
+def upgrade(
     ctx: click.Context,
     plugins_path: Optional[Path],
     image_tag: Optional[str],
@@ -456,10 +372,10 @@ def upgrade_command(
 
     Examples:
       # Rebuild plugins and upgrade
-      ansible-portal-installer helm-upgrade --plugins-path ~/Work/ansible-portal/ansible-backstage-plugins
+      ansible-portal-installer helm upgrade --plugins-path ~/Work/ansible-portal/ansible-backstage-plugins
 
       # Switch to existing image tag
-      ansible-portal-installer helm-upgrade --image-tag dev-20260502
+      ansible-portal-installer helm upgrade --image-tag dev-20260502
     """
     try:
         settings = get_settings()
@@ -508,11 +424,11 @@ def upgrade_command(
         sys.exit(EXIT_ERROR)
 
 
-@cli.command("health-check")
+@helm.command("health-check")
 @click.option("--namespace", "-n", help="OpenShift namespace (default: from .env)")
 @click.option("--release", "-r", help="Helm release name (default: from .env)")
 @click.pass_context
-def health_check_command(
+def health_check(
     ctx: click.Context,
     namespace: Optional[str],
     release: Optional[str],
@@ -528,7 +444,7 @@ def health_check_command(
       - Plugin registry (OCI image accessibility)
 
     Example:
-      ansible-portal-installer health-check
+      ansible-portal-installer helm health-check
     """
     try:
         settings = get_settings()
@@ -562,12 +478,12 @@ def health_check_command(
         sys.exit(EXIT_ERROR)
 
 
-@cli.command("collect-logs")
+@helm.command("collect-logs")
 @click.option("--output-dir", "-o", type=click.Path(path_type=Path), help="Output directory (default: ./logs)")
 @click.option("--namespace", "-n", help="OpenShift namespace (default: from .env)")
 @click.option("--release", "-r", help="Helm release name (default: from .env)")
 @click.pass_context
-def collect_logs_command(
+def collect_logs(
     ctx: click.Context,
     output_dir: Optional[Path],
     namespace: Optional[str],
@@ -582,7 +498,7 @@ def collect_logs_command(
       - Helm release status
 
     Example:
-      ansible-portal-installer collect-logs --output-dir /tmp/portal-logs
+      ansible-portal-installer helm collect-logs --output-dir /tmp/portal-logs
     """
     try:
         settings = get_settings()

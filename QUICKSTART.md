@@ -89,28 +89,17 @@ Checking Prerequisites
 
 ## 4. Deploy! (5-10 minutes)
 
-### Option A: Full Automated Deployment
+Run the deployment workflow step-by-step:
 
 ```bash
-ansible-portal-installer full-deploy
-```
+# Build plugins (~3 min)
+ansible-portal-installer plugins build
 
-This runs:
-1. Build plugins (~3 min)
-2. Publish image (~1 min)
-3. Deploy to OpenShift (~2 min)
+# Publish to registry (~1 min)
+ansible-portal-installer plugins publish
 
-### Option B: Step-by-Step
-
-```bash
-# Build plugins
-ansible-portal-installer build
-
-# Publish to registry
-ansible-portal-installer publish
-
-# Deploy with Helm
-ansible-portal-installer helm-deploy
+# Deploy with Helm (~2 min)
+ansible-portal-installer helm deploy
 ```
 
 ## What to Expect
@@ -177,19 +166,19 @@ Deploying Ansible Portal with Helm
 
 ```bash
 # Check deployment status
-ansible-portal-installer status
+ansible-portal-installer deployment status
 
 # Verify deployment
-ansible-portal-installer verify
+ansible-portal-installer deployment verify
 
-# Cleanup deployment
-ansible-portal-installer cleanup
+# Teardown deployment
+ansible-portal-installer helm teardown
 
 # Deploy to different namespace
-ansible-portal-installer helm-deploy --namespace test-env
+ansible-portal-installer helm deploy --namespace test-env
 
-# Rebuild and redeploy
-ansible-portal-installer full-deploy
+# Upgrade deployment
+ansible-portal-installer helm upgrade --image-tag dev-20260502
 ```
 
 ## Troubleshooting
